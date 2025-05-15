@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+
+{% block title %}WASSp - Defacement Monitor{% endblock %}
+
+{% block content %}
+<div class="container main-container">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-4">
+                <i class="fas fa-shield-alt text-primary"></i> Defacement Monitor
+            </h1>
+            
+            <div class="alert alert-info">
+                <div class="d-flex align-items-center">
+                    <div class="me-3">
+                        <i class="fas fa-info-circle fa-2x"></i>
+                    </div>
+                    <div>
+                        <h5 class="mb-1">Defacement Monitoring</h5>
+                        <p class="mb-0">This feature monitors your websites for any changes that could indicate defacement or unauthorized modifications. The system regularly checks content and appearance, alerting you to suspicious changes.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card dashboard-card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-tachometer-alt"></i> Monitoring Status</h3>
+                </div>
+                <div class="card-body text-center">
+                    {% if monitor_job_status %}
+                        <div class="mb-3">
+                            <i class="fas fa-check-circle text-success" style="font-size: 3rem;"></i>
+                        </div>
+                        <h4 class="text-success">Active</h4>
+                        <p>Defacement monitoring is currently active and running.</p>
+                        <form action="{{ url_for('stop_monitoring') }}" method="post">
+                            <button type="submit" class="btn btn-danger">
+                                <i class="fas fa-stop-circle"></i> Stop Monitoring
+                            </button>
+                        </form>
+                    {% else %}
+                        <div class="mb-3">
+                            <i class="fas fa-times-circle text-danger" style="font-size: 3rem;"></i>
+                        </div>
+                        <h4 class="text-danger">Inactive</h4>
+                        <p>Defacement monitoring is currently stopped.</p>
+                        <a href="#start-monitoring" class="btn btn-success">
+                            <i class="fas fa-play-circle"></i> Start Monitoring
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card dashboard-card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-globe"></i> Monitored URLs</h3>
+                </div>
+                <div class="card-body">
+                    {% if monitored_urls %}
+                        <p>Currently monitoring <strong>{{ monitored_urls|length }}</strong> URLs:</p>
+                        <ul class="list-group">
+                            {% for url in monitored_urls %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    {{ url }}
+                                    <span class="badge bg-primary rounded-pill">
+                                        {% if url in last_checks %}
+                                            <i class="fas fa-clock" data-bs-toggle="tooltip" title="Last checked: {{ last_checks[url] }}"></i>
+                                        {% else %}
+                                            <i class="fas fa-hourglass-start" data-bs-toggle="tooltip" title="Not checked yet"></i>
+                                        {% endif %}
+                                    </span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="text-center py-3">
+                            <i class="fas fa-exclamation-circle text-warning" style="font-size: 2rem;"></i>
+                            <p class="mt-2">No URLs are currently being monitored.</p>
+                            <a href="{{ url_for('defacement_settings') }}" class="btn btn-sm btn-primary">
+                                <i class="fas fa-plus-circle"></i> Add URLs to Monitor
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card dashboard-card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-bell"></i> Notifications</h3>
+                </div>
+                <div class="card-body">
+                    {% if config.get('pushover_user_key') and config.get('pushover_api_token') %}
+                        <div class="text-center">
+                            <i class="fas fa-check-circle text-success" style="font-size: 2rem;"></i>
+                            <h5 class="mt-2">Pushover Notifications Configured</h5>
+                            <p>You will receive alerts when changes are detected.</p>
+                            
+                            <form id="testNotificationForm" class="mt-3">
+                                <button type="submit" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-paper-plane"></i> Send Test Notification
+                                </button>
+                                <div id="testNotificationResult" class="mt-2"></div>
+                            </form>
+                        </div>
+                    {% else %}
+                        <div class="text-center">
+                            <i class="fas fa-exclamation-triangle text-warning" style="font-size: 2rem;"></i>
+                            <h5 class="mt-2">Notifications Not Configured</h5>
+                            <p>Configure Pushover to receive alerts when changes are detected.</p>
+                            <a href="{{ url_for('defacement_settings') }}" class="btn btn-sm btn-primary">
+                                <i class="fas fa-cog"></i> Configure Notifications
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-5">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-camera"></i> Website Screenshots</h3>
+                </div>
+                <div class="card-body">
+                    {% if monitored_urls %}
+                        <div class="row" id="screenshotContainer">
+                            {% for url in monitored_urls %}
+                                <div class="col-md-6 col-lg-4 mb-4">
+                                    <div class="card h-100">
+                                        <div class="card-header">
+                                            <h5 class="mb-0 text-truncate">{{ url }}</h5>
+                                        </div>
+                                        <div class="card-body p-0">
+                                            <img src="{{ url_for('get_defacement_screenshot', url=url) }}" class="img-fluid" alt="Screenshot of {{ url }}">
+                                        </div>
+                                        <div class="card-footer d-flex justify-content-between">
+                                            <a href="{{ url_for('download_defacement_report', url=url) }}" class="btn btn-sm btn-primary">
+                                                <i class="fas fa-download"></i> Download Report
+                                            </a>
+                                            <a href="{{ url }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                <i class="fas fa-external-link-alt"></i> Visit Site
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-images text-muted" style="font-size: 3rem;"></i>
+                            <h4 class="mt-3">No Screenshots Available</h4>
+                            <p>Add URLs to monitor to see their screenshots here.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="start-monitoring" class="row mb-5">
+        <div class="col-lg-8 mx-auto">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-play-circle"></i> Start Monitoring</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('start_monitoring') }}" method="post">
+                        <div class="mb-3">
+                            <label class="form-label">Monitoring Mode</label>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="monitor_mode" id="intervalMode" value="interval" checked>
+                                        <label class="form-check-label" for="intervalMode">
+                                            <strong>Interval Based</strong>
+                                            <div class="small text-muted">Check at regular time intervals</div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="monitor_mode" id="cronMode" value="cron">
+                                        <label class="form-check-label" for="cronMode">
+                                            <strong>Schedule Based</strong>
+                                            <div class="small text-muted">Check at specific times (cron format)</div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3" id="intervalSettings">
+                            <label for="interval" class="form-label">Check Interval (minutes)</label>
+                            <input type="number" class="form-control" id="interval" name="interval" value="30" min="1" required>
+                            <div class="form-text">How often to check the monitored URLs for changes (in minutes)</div>
+                        </div>
+                        
+                        <div class="mb-3 d-none" id="cronSettings">
+                            <label for="schedule" class="form-label">Cron Schedule</label>
+                            <input type="text" class="form-control" id="schedule" name="schedule" placeholder="*/30 * * * *">
+                            <div class="form-text">
+                                Schedule in cron format (e.g., "*/30 * * * *" for every 30 minutes).
+                                <a href="https://crontab.guru/" target="_blank">Need help with cron format?</a>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center mt-4">
+                            <button type="submit" class="btn btn-success btn-lg">
+                                <i class="fas fa-play-circle"></i> Start Monitoring
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="text-center mt-4">
+        <a href="{{ url_for('defacement_settings') }}" class="btn btn-primary btn-lg me-3">
+            <i class="fas fa-cog"></i> Monitor Settings
+        </a>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary btn-lg">
+            <i class="fas fa-tachometer-alt"></i> Main Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Toggle between interval and cron settings
+    document.addEventListener('DOMContentLoaded', function() {
+        const intervalMode = document.getElementById('intervalMode');
+        const cronMode = document.getElementById('cronMode');
+        const intervalSettings = document.getElementById('intervalSettings');
+        const cronSettings = document.getElementById('cronSettings');
+        
+        intervalMode.addEventListener('change', function() {
+            if (this.checked) {
+                intervalSettings.classList.remove('d-none');
+                cronSettings.classList.add('d-none');
+            }
+        });
+        
+        cronMode.addEventListener('change', function() {
+            if (this.checked) {
+                intervalSettings.classList.add('d-none');
+                cronSettings.classList.remove('d-none');
+            }
+        });
+        
+        // Test notification form
+        const testNotificationForm = document.getElementById('testNotificationForm');
+        if (testNotificationForm) {
+            testNotificationForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const resultElement = document.getElementById('testNotificationResult');
+                resultElement.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div> Sending test notification...';
+                
+                $.ajax({
+                    url: '{{ url_for("api_test_notification") }}',
+                    method: 'POST',
+                    data: {
+                        message: 'This is a test notification from WASSp Defacement Monitor.'
+                    },
+                    success: function(response) {
+                        resultElement.innerHTML = '<div class="alert alert-success mt-2 mb-0 py-1">Test notification sent successfully!</div>';
+                        setTimeout(() => {
+                            resultElement.innerHTML = '';
+                        }, 3000);
+                    },
+                    error: function(xhr) {
+                        const response = xhr.responseJSON || {};
+                        resultElement.innerHTML = '<div class="alert alert-danger mt-2 mb-0 py-1">Error: ' + (response.message || 'Failed to send test notification') + '</div>';
+                    }
+                });
+            });
+        }
+        
+        // Refresh screenshots every 60 seconds
+        function refreshScreenshots() {
+            const container = document.getElementById('screenshotContainer');
+            if (container) {
+                const screenshots = container.querySelectorAll('img');
+                screenshots.forEach(img => {
+                    const currentSrc = img.src;
+                    img.src = currentSrc.split('?')[0] + '?t=' + new Date().getTime();
+                });
+            }
+        }
+        
+        // Refresh screenshots every 60 seconds
+        setInterval(refreshScreenshots, 60000);
+    });
+</script>
+{% endblock %}

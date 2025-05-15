@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}WASSp - Server Error{% endblock %}
+
+{% block content %}
+<div class="container main-container">
+    <div class="row mb-5">
+        <div class="col-md-8 mx-auto text-center">
+            <div class="py-5">
+                <i class="fas fa-bug text-danger" style="font-size: 6rem;"></i>
+                <h1 class="mt-4 mb-3">500 - Server Error</h1>
+                <p class="lead">Oops! Something went wrong on our end.</p>
+                <p>We encountered an internal error and were unable to complete your request.</p>
+                <div class="mt-4">
+                    <a href="{{ url_for('index') }}" class="btn btn-primary btn-lg me-3">
+                        <i class="fas fa-home"></i> Go to Home
+                    </a>
+                    <a href="javascript:window.location.reload()" class="btn btn-outline-primary btn-lg">
+                        <i class="fas fa-sync"></i> Try Again
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

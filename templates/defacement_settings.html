@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}WASSp - Defacement Monitor Settings{% endblock %}
+
+{% block content %}
+<div class="container main-container">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-4">
+                <i class="fas fa-shield-alt text-primary"></i> Defacement Monitor Settings
+            </h1>
+            
+            <div class="alert alert-info">
+                <div class="d-flex align-items-center">
+                    <div class="me-3">
+                        <i class="fas fa-info-circle fa-2x"></i>
+                    </div>
+                    <div>
+                        <h5 class="mb-1">Configure Defacement Monitoring</h5>
+                        <p class="mb-0">Set up the websites you want to monitor for defacement or unauthorized changes and configure notifications.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-lg-10 mx-auto">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-cog"></i> Monitor Configuration</h3>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('defacement_settings') }}">
+                        <div class="mb-4">
+                            <h4 class="border-bottom pb-2"><i class="fas fa-globe"></i> URLs to Monitor</h4>
+                            <div class="mb-3">
+                                <label for="monitored_urls" class="form-label">Websites to Monitor (comma-separated)</label>
+                                <textarea class="form-control" id="monitored_urls" name="monitored_urls" rows="3" placeholder="https://example.com, https://example.org">{{ monitored_urls }}</textarea>
+                                <div class="form-text">Enter the full URLs of the websites you want to monitor, separated by commas.</div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h4 class="border-bottom pb-2"><i class="fas fa-bell"></i> Notifications</h4>
+                            <div class="mb-3">
+                                <label for="pushover_user_key" class="form-label">Pushover User Key</label>
+                                <input type="text" class="form-control" id="pushover_user_key" name="pushover_user_key" value="{{ config.get('pushover_user_key', '') }}">
+                                <div class="form-text">
+                                    Your Pushover user key from <a href="https://pushover.net" target="_blank">pushover.net</a> dashboard.
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="pushover_api_token" class="form-label">Pushover API Token</label>
+                                <input type="text" class="form-control" id="pushover_api_token" name="pushover_api_token" value="{{ config.get('pushover_api_token', '') }}">
+                                <div class="form-text">
+                                    Create an application on Pushover to get an API token.
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="custom_message" class="form-label">Custom Notification Message</label>
+                                <textarea class="form-control" id="custom_message" name="custom_message" rows="2">{{ config.get('custom_message', '') }}</textarea>
+                                <div class="form-text">Optional custom text to prepend to all notifications.</div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="test_notification" name="test_notification">
+                                    <label class="form-check-label" for="test_notification">Send a test notification after saving</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h4 class="border-bottom pb-2"><i class="fas fa-filter"></i> Change Detection Settings</h4>
+                            <div class="mb-3">
+                                <label for="change_threshold" class="form-label">Change Threshold (%)</label>
+                                <input type="range" class="form-range" id="change_threshold" name="change_threshold" min="1" max="50" value="{{ (config.get('change_threshold', 0.05) * 100)|int }}">
+                                <div class="d-flex justify-content-between">
+                                    <span>Minor Changes (1%)</span>
+                                    <span id="thresholdValue">{{ (config.get('change_threshold', 0.05) * 100)|int }}%</span>
+                                    <span>Major Changes (50%)</span>
+                                </div>
+                                <div class="form-text">The minimum percentage of content change required to trigger an alert.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="ignore_patterns" class="form-label">Ignore Patterns</label>
+                                <select class="form-select" id="ignore_patterns" name="ignore_patterns" multiple size="5">
+                                    {% for pattern in ['date', 'time', 'counter', 'ads', 'comments'] %}
+                                        <option value="{{ pattern }}" {% if pattern in config.get('ignore_patterns', []) %}selected{% endif %}>
+                                            {{ pattern|title }} changes
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">Select elements to ignore when detecting changes (hold Ctrl/Cmd to select multiple).</div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h4 class="border-bottom pb-2"><i class="fas fa-camera"></i> Screenshot Settings</h4>
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_visual_diff" name="enable_visual_diff" {% if config.get('enable_visual_diff', true) %}checked{% endif %}>
+                                    <label class="form-check-label" for="enable_visual_diff">Enable Visual Diff Analysis</label>
+                                </div>
+                                <div class="form-text">Compare screenshots of websites to detect visual changes that might not affect the HTML content.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="screenshot_width" class="form-label">Screenshot Width (pixels)</label>
+                                <input type="number" class="form-control" id="screenshot_width" name="screenshot_width" value="{{ config.get('screenshot_width', 1920) }}" min="800" max="3840">
+                            </div>
+                            <div class="mb-3">
+                                <label for="screenshot_height" class="form-label">Screenshot Height (pixels)</label>
+                                <input type="number" class="form-control" id="screenshot_height" name="screenshot_height" value="{{ config.get('screenshot_height', 1080) }}" min="600" max="2160">
+                            </div>
+                        </div>
+                        
+                        <div class="text-center mt-4">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-save"></i> Save Settings
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="text-center mt-4">
+        <a href="{{ url_for('defacement_dashboard') }}" class="btn btn-secondary btn-lg">
+            <i class="fas fa-arrow-left"></i> Back to Defacement Monitor
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Update threshold value display
+    document.addEventListener('DOMContentLoaded', function() {
+        const thresholdInput = document.getElementById('change_threshold');
+        const thresholdValue = document.getElementById('thresholdValue');
+        
+        thresholdInput.addEventListener('input', function() {
+            thresholdValue.textContent = this.value + '%';
+        });
+    });
+</script>
+{% endblock %}

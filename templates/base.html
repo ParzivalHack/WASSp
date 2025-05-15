@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}WASSp - Web Attack Surface Scanner{% endblock %}</title>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS with green and white color scheme -->
+    <style>
+        :root {
+            --primary-color: #2e7d32; /* Dark green */
+            --secondary-color: #4caf50; /* Medium green */
+            --light-color: #81c784; /* Light green */
+            --accent-color: #00c853; /* Bright green */
+            --background-color: #f8f9fa; /* Light background */
+            --card-bg-color: #ffffff; /* White card background */
+            --text-color: #212529; /* Dark text */
+            --light-text: #6c757d; /* Light text */
+        }
+        
+        body {
+            background-color: var(--background-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .navbar {
+            background-color: var(--primary-color);
+        }
+        
+        .navbar-brand {
+            font-weight: bold;
+            color: white !important;
+        }
+        
+        .navbar-dark .navbar-nav .nav-link {
+            color: rgba(255, 255, 255, 0.85);
+        }
+        
+        .navbar-dark .navbar-nav .nav-link:hover {
+            color: white;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-primary:hover, .btn-primary:focus {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+        
+        .btn-outline-primary {
+            color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-outline-primary:hover, .btn-outline-primary:focus {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .card {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: none;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            background-color: var(--card-bg-color);
+        }
+        
+        .card-header {
+            background-color: var(--primary-color);
+            color: white;
+            border-radius: 8px 8px 0 0 !important;
+            padding: 15px;
+            font-weight: 500;
+        }
+        
+        .dashboard-card {
+            height: 100%;
+            transition: transform 0.3s;
+        }
+        
+        .dashboard-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .main-container {
+            margin-top: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .feature-icon {
+            font-size: 2.5rem;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+        
+        .alert-success {
+            background-color: var(--light-color);
+            border-color: var(--secondary-color);
+            color: var(--primary-color);
+        }
+        
+        .progress-bar {
+            background-color: var(--secondary-color);
+        }
+        
+        .text-primary {
+            color: var(--primary-color) !important;
+        }
+        
+        .bg-primary {
+            background-color: var(--primary-color) !important;
+        }
+        
+        footer {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 20px 0;
+            margin-top: 50px;
+        }
+        
+        .severity-high {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+        
+        .severity-medium {
+            color: #ff9800;
+            font-weight: bold;
+        }
+        
+        .severity-low {
+            color: #ffeb3b;
+            font-weight: bold;
+        }
+        
+        .severity-info {
+            color: #2196f3;
+            font-weight: bold;
+        }
+        
+        .result-item {
+            border-left: 3px solid var(--secondary-color);
+            padding-left: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .badge-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .badge-secondary {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        
+        .badge-light {
+            background-color: var(--light-color);
+            color: var(--text-color);
+        }
+        
+        .badge-danger {
+            background-color: #d32f2f;
+            color: white;
+        }
+        
+        .badge-warning {
+            background-color: #ff9800;
+            color: white;
+        }
+        
+        .badge-info {
+            background-color: #2196f3;
+            color: white;
+        }
+        
+        .nav-tabs .nav-link.active {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--primary-color);
+            font-weight: bold;
+        }
+        
+        .nav-tabs .nav-link {
+            color: var(--light-text);
+        }
+        
+        /* Loading spinner */
+        .spinner-border {
+            color: var(--primary-color);
+        }
+        
+        /* Custom toggle switch for green theme */
+        .form-check-input:checked {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        /* Custom tooltip */
+        .tooltip-inner {
+            background-color: var(--primary-color);
+        }
+        
+        /* Hero section */
+        .hero {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 60px 0;
+            border-radius: 0 0 20px 20px;
+            margin-bottom: 40px;
+        }
+        
+        .hero h1 {
+            font-weight: 700;
+            font-size: 2.5rem;
+        }
+        
+        .hero p {
+            font-size: 1.2rem;
+            max-width: 800px;
+            margin: 20px auto;
+            opacity: 0.9;
+        }
+        
+        /* Feature cards on homepage */
+        .feature-card {
+            text-align: center;
+            padding: 30px 20px;
+            height: 100%;
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .feature-card .icon {
+            font-size: 3rem;
+            color: var(--primary-color);
+            margin-bottom: 20px;
+        }
+        
+        /* AI Analysis Modal */
+        .modal-header {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--secondary-color);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-color);
+        }
+        
+        /* Wasp logo animation */
+        .wasp-logo {
+            animation: float 3s ease-in-out infinite;
+            font-size: 2.5rem;
+            margin-right: 10px;
+        }
+        
+        @keyframes float {
+            0% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-10px);
+            }
+            100% {
+                transform: translateY(0);
+            }
+        }
+        
+        /* Innovative Features */
+        .innovation-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: var(--accent-color);
+            color: white;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            z-index: 10;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-bug wasp-logo"></i> WASSp
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            <i class="fas fa-home"></i> Home
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('dashboard') }}">
+                            <i class="fas fa-tachometer-alt"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('defacement_dashboard') }}">
+                            <i class="fas fa-shield-alt"></i> Defacement Monitor
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('configure') }}">
+                            <i class="fas fa-cog"></i> Settings
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="container mt-3">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+    
+    {% block content %}{% endblock %}
+    
+    <footer class="mt-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <h5><i class="fas fa-bug"></i> WASSp - Web Attack Surface Scanner</h5>
+                    <p>A powerful tool for web security assessment and monitoring.</p>
+                </div>
+                <div class="col-md-3">
+                    <h5>Quick Links</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="{{ url_for('index') }}" class="text-white">Home</a></li>
+                        <li><a href="{{ url_for('dashboard') }}" class="text-white">Dashboard</a></li>
+                        <li><a href="{{ url_for('defacement_dashboard') }}" class="text-white">Defacement Monitor</a></li>
+                        <li><a href="{{ url_for('configure') }}" class="text-white">Settings</a></li>
+                    </ul>
+                </div>
+                <div class="col-md-3">
+                    <h5>Made by</h5>
+                    <p>Tommaso Bona (<a href="https://github.com/ParzivalHack" target="_blank" class="text-white">ParzivalHack</a>)</p>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-12 text-center">
+                    <p class="mb-0">&copy; {{ now('Y') }} WASSp - All rights reserved</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- AI API Key Modal -->
+    <div class="modal fade" id="aiApiKeyModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-robot"></i> Configure AI Feature
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> To use the AI-powered vulnerability analysis feature, you need to provide your OpenAI API key.
+                    </div>
+                    <form id="openaiApiKeyForm">
+                        <div class="mb-3">
+                            <label for="openaiApiKey" class="form-label">OpenAI API Key</label>
+                            <input type="text" class="form-control" id="openaiApiKey" placeholder="sk-..." required>
+                            <div class="form-text">
+                                Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI's website</a>
+                            </div>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="saveApiKey">
+                            <label class="form-check-label" for="saveApiKey">Save API key for future use</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="submitApiKey">
+                            <i class="fas fa-save"></i> Save and Enable AI Feature
+                        </button>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <div class="small text-muted">Your API key will be stored locally and only used for vulnerability analysis.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
+    
+    <script>
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+        
+        // OpenAI API Key Modal Form Submission
+        document.getElementById('openaiApiKeyForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            var apiKey = document.getElementById('openaiApiKey').value;
+            var saveApiKey = document.getElementById('saveApiKey').checked;
+            
+            // Save API key
+            $.ajax({
+                url: '{{ url_for("set_openai_key") }}',
+                method: 'POST',
+                data: {
+                    openai_api_key: apiKey
+                },
+                success: function(response) {
+                    // Close modal
+                    var modal = bootstrap.Modal.getInstance(document.getElementById('aiApiKeyModal'));
+                    modal.hide();
+                    
+                    // Show success message
+                    alert('AI feature enabled successfully!');
+                    
+                    // Trigger AI analysis if this was called from the analyze button
+                    if (window.pendingAnalysisCallback) {
+                        window.pendingAnalysisCallback();
+                        window.pendingAnalysisCallback = null;
+                    }
+                },
+                error: function(xhr) {
+                    var response = xhr.responseJSON || {};
+                    alert('Error: ' + (response.message || 'Failed to set API key'));
+                }
+            });
+        });
+        
+        // Function to prompt for API key if needed
+        function requestApiKey(callback) {
+            window.pendingAnalysisCallback = callback;
+            var modal = new bootstrap.Modal(document.getElementById('aiApiKeyModal'));
+            modal.show();
+        }
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

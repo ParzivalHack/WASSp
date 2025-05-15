@@ -1,0 +1,534 @@
+{% extends "base.html" %}
+
+{% block title %}WASSp - Dashboard{% endblock %}
+
+{% block content %}
+<div class="container main-container">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-4">
+                <i class="fas fa-tachometer-alt text-primary"></i> WASSp Dashboard
+            </h1>
+        </div>
+    </div>
+    
+    <div class="row mb-4">
+        <div class="col-md-4 mb-4">
+            <div class="card dashboard-card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-search"></i> Quick Scan</h3>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('start_scan') }}" method="post">
+                        <div class="mb-3">
+                            <label for="url" class="form-label">URL to Scan</label>
+                            <input type="url" class="form-control" id="url" name="url" placeholder="https://example.com" required>
+                        </div>
+                        <input type="hidden" name="scan_type" value="basic">
+                        <input type="hidden" name="crawl_depth" value="1">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-search"></i> Start Quick Scan
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4 mb-4">
+            <div class="card dashboard-card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-shield-alt"></i> Defacement Monitor</h3>
+                </div>
+                <div class="card-body">
+                    <div class="text-center">
+                        <div class="mb-3">
+                            {% if monitor_job_status %}
+                                <i class="fas fa-check-circle text-success" style="font-size: 3rem;"></i>
+                                <h4 class="mt-2 text-success">Active</h4>
+                                <p>Monitoring {{ monitored_urls|length }} URLs</p>
+                                <form action="{{ url_for('stop_monitoring') }}" method="post">
+                                    <button type="submit" class="btn btn-danger">
+                                        <i class="fas fa-stop-circle"></i> Stop Monitoring
+                                    </button>
+                                </form>
+                            {% else %}
+                                <i class="fas fa-times-circle text-danger" style="font-size: 3rem;"></i>
+                                <h4 class="mt-2 text-danger">Inactive</h4>
+                                <p>Defacement monitoring is not active</p>
+                                <a href="{{ url_for('defacement_dashboard') }}#start-monitoring" class="btn btn-success">
+                                    <i class="fas fa-play-circle"></i> Start Monitoring
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="{{ url_for('defacement_dashboard') }}" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-external-link-alt"></i> Open Defacement Monitor
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4 mb-4">
+            <div class="card dashboard-card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-robot"></i> AI Feature</h3>
+                </div>
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        {% if config.get('enable_ai_features') and config.get('openai_api_key') %}
+                            <i class="fas fa-check-circle text-success" style="font-size: 3rem;"></i>
+                            <h4 class="mt-2 text-success">Enabled</h4>
+                            <p>AI-powered vulnerability remediation is active</p>
+                        {% else %}
+                            <i class="fas fa-times-circle text-danger" style="font-size: 3rem;"></i>
+                            <h4 class="mt-2 text-danger">Disabled</h4>
+                            <p>AI-powered vulnerability remediation is not configured</p>
+                            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#aiApiKeyModal">
+                                <i class="fas fa-key"></i> Configure API Key
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="{{ url_for('configure') }}" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-cog"></i> Configure Settings
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-5">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="mb-0"><i class="fas fa-history"></i> Recent Scans</h3>
+                    <a href="{{ url_for('index') }}#scan-section" class="btn btn-sm btn-primary">
+                        <i class="fas fa-search"></i> New Scan
+                    </a>
+                </div>
+                <div class="card-body">
+                    {% if scan_results %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>URL</th>
+                                        <th>Scan Type</th>
+                                        <th>Timestamp</th>
+                                        <th>URLs Scanned</th>
+                                        <th>Vulnerabilities</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>{{ scan_results.url }}</td>
+                                        <td>
+                                            {% if scan_results.scan_type == 'basic' %}
+                                                <span class="badge bg-success">Basic</span>
+                                            {% elif scan_results.scan_type == 'full' %}
+                                                <span class="badge bg-warning">Full</span>
+                                            {% else %}
+                                                <span class="badge bg-danger">Advanced</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ scan_results.timestamp }}</td>
+                                        <td>{{ scan_results.target_urls|length }}</td>
+                                        <td>
+                                            {% set vuln_count = namespace(total=0) %}
+                                            {% if scan_results and scan_results.get('results') %}
+                                                {% for url, result in scan_results.results.items() %}
+                                                    {% if result.vulnerabilities %}
+                                                        {% set vuln_count.total = vuln_count.total + result.vulnerabilities|length %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                            {% endif %}
+                                            
+                                            {% if vuln_count.total > 0 %}
+                                                <span class="badge bg-danger">{{ vuln_count.total }}</span>
+                                            {% else %}
+                                                <span class="badge bg-success">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <a href="{{ url_for('scan_result') }}" class="btn btn-sm btn-primary">
+                                                <i class="fas fa-eye"></i> View
+                                            </a>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-search text-muted" style="font-size: 3rem;"></i>
+                            <h4 class="mt-3">No Recent Scans</h4>
+                            <p>Start a new scan to see results here.</p>
+                            <a href="{{ url_for('index') }}#scan-section" class="btn btn-primary">
+                                <i class="fas fa-search"></i> Start New Scan
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-5">
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-chart-bar"></i> Security Statistics</h3>
+                </div>
+                <div class="card-body">
+                    <canvas id="securityStatsChart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-globe"></i> Monitored URLs</h3>
+                </div>
+                <div class="card-body">
+                    {% if monitored_urls %}
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="monitoredUrlsTable">
+                                <thead>
+                                    <tr>
+                                        <th>URL</th>
+                                        <th>Last Check</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for url in monitored_urls %}
+                                        <tr>
+                                            <td>{{ url }}</td>
+                                            <td>
+                                                {% if url in last_checks %}
+                                                    {{ last_checks[url] }}
+                                                {% else %}
+                                                    Never
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if url in last_checks %}
+                                                    <span class="badge bg-success">Checked</span>
+                                                {% else %}
+                                                    <span class="badge bg-warning">Pending</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-exclamation-triangle text-warning" style="font-size: 2rem;"></i>
+                            <h5 class="mt-2">No URLs Monitored</h5>
+                            <p>Add URLs to monitor in the Defacement Monitor settings.</p>
+                            <a href="{{ url_for('defacement_settings') }}" class="btn btn-primary">
+                                <i class="fas fa-cog"></i> Configure Monitoring
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-5">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="mb-0"><i class="fas fa-cloud"></i> Public Access</h3>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-body text-center">
+                                    <div class="mb-3">
+                                        <i class="fas fa-cloud text-primary" style="font-size: 3rem;"></i>
+                                    </div>
+                                    <h4>Cloudflare Tunnel</h4>
+                                    <p>Create a secure tunnel to access WASSp from anywhere using Cloudflare.</p>
+                                    <form action="{{ url_for('start_cloudflare_tunnel') }}" method="post">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fas fa-play-circle"></i> Start Cloudflare Tunnel
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-body text-center">
+                                    <div class="mb-3">
+                                        <i class="fas fa-network-wired text-primary" style="font-size: 3rem;"></i>
+                                    </div>
+                                    <h4>Ngrok Tunnel</h4>
+                                    <p>Create a secure tunnel to access WASSp from anywhere using Ngrok.</p>
+                                    {% if session.get('ngrok_url') %}
+                                        <div class="alert alert-success">
+                                            <strong>Active Ngrok URL:</strong><br>
+                                            <a href="{{ session.get('ngrok_url') }}" target="_blank">{{ session.get('ngrok_url') }}</a>
+                                        </div>
+                                    {% endif %}
+                                    <form action="{{ url_for('start_ngrok_tunnel') }}" method="post">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fas fa-play-circle"></i> Start Ngrok Tunnel
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Pre-computed data for JavaScript security
+    {% set vuln_count = namespace(total=0) %}
+    {% if scan_results and scan_results.get('results') %}
+        {% for url, result in scan_results.get('results', {}).items() %}
+            {% if result.vulnerabilities %}
+                {% set vuln_count.total = vuln_count.total + result.vulnerabilities|length %}
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+    
+    {% set missing_headers_count = 0 %}
+    {% if scan_results and scan_results.get('results') and scan_results.get('url') %}
+        {% set headers = scan_results.get('results', {}).get(scan_results.get('url', ''), {}).get('headers', {}) %}
+        {% set security_headers = ['Strict-Transport-Security', 'X-Content-Type-Options', 'X-Frame-Options', 'Content-Security-Policy', 'X-XSS-Protection'] %}
+        {% for header in security_headers %}
+            {% if header not in headers %}
+                {% set missing_headers_count = missing_headers_count + 1 %}
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+    
+    {% set ssl_issues = 0 %}
+    {% if scan_results and scan_results.get('results') and scan_results.get('url') %}
+        {% set ssl_info = scan_results.get('results', {}).get(scan_results.get('url', ''), {}).get('ssl_info', {}) %}
+        {% if ssl_info and ssl_info.get('has_expired') %}
+            {% set ssl_issues = 1 %}
+        {% endif %}
+    {% endif %}
+    
+    {% set monitored_count = monitored_urls|length if monitored_urls else 0 %}
+    
+    // Generate chart data
+    document.addEventListener('DOMContentLoaded', function() {
+        const ctx = document.getElementById('securityStatsChart').getContext('2d');
+        
+        // Create security stats chart
+        const securityStatsChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Vulnerabilities', 'Security Headers', 'SSL Issues', 'Monitored Sites'],
+                datasets: [{
+                    label: 'Security Statistics',
+                    data: [
+                        {{ vuln_count.total }},
+                        {{ missing_headers_count }},
+                        {{ ssl_issues }},
+                        {{ monitored_count }}
+                    ],
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.2)',
+                        'rgba(255, 159, 64, 0.2)',
+                        'rgba(255, 205, 86, 0.2)',
+                        'rgba(75, 192, 192, 0.2)'
+                    ],
+                    borderColor: [
+                        'rgb(255, 99, 132)',
+                        'rgb(255, 159, 64)',
+                        'rgb(255, 205, 86)',
+                        'rgb(75, 192, 192)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                label += context.raw;
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0
+                        }
+                    }
+                }
+            }
+        });
+
+        // If vulnerabilities exist, add a risk rating
+        if ({{ vuln_count.total }} > 0) {
+            const chartContainer = document.getElementById('securityStatsChart').parentNode;
+            const riskRating = document.createElement('div');
+            riskRating.classList.add('text-center', 'mt-3');
+            
+            let riskLevel = 'Low';
+            let riskColor = '#4caf50';
+            
+            if ({{ vuln_count.total }} > 5) {
+                riskLevel = 'High';
+                riskColor = '#d32f2f';
+            } else if ({{ vuln_count.total }} > 2) {
+                riskLevel = 'Medium';
+                riskColor = '#ff9800';
+            }
+            
+            riskRating.innerHTML = `<strong>Risk Level: <span style="color: ${riskColor}">${riskLevel}</span></strong>`;
+            chartContainer.appendChild(riskRating);
+        }
+    });
+
+    // Initialize OpenAI API key form
+    document.addEventListener('DOMContentLoaded', function() {
+        const openaiApiKeyForm = document.getElementById('openaiApiKeyForm');
+        
+        if (openaiApiKeyForm) {
+            openaiApiKeyForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const apiKey = document.getElementById('openaiApiKey').value;
+                
+                fetch('{{ url_for("set_openai_key") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `openai_api_key=${encodeURIComponent(apiKey)}`
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Close modal
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('aiApiKeyModal'));
+                        modal.hide();
+                        
+                        // Reload page to update UI
+                        window.location.reload();
+                    } else {
+                        alert('Error: ' + (data.message || 'Failed to set API key'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error setting API key:', error);
+                    alert('An error occurred while setting the API key.');
+                });
+            });
+        }
+    });
+
+    // Test notification function
+    document.addEventListener('DOMContentLoaded', function() {
+        const testNotificationBtn = document.getElementById('testNotificationBtn');
+        if (testNotificationBtn) {
+            testNotificationBtn.addEventListener('click', function() {
+                fetch('{{ url_for("api_test_notification") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'message=This is a test notification from WASSp Dashboard'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert('Test notification sent successfully!');
+                    } else {
+                        alert('Failed to send test notification. Check your Pushover configuration.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error sending test notification:', error);
+                    alert('An error occurred while sending the test notification.');
+                });
+            });
+        }
+    });
+
+    // Initialize tooltips and popovers
+    document.addEventListener('DOMContentLoaded', function() {
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+        
+        var popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
+        popoverTriggerList.map(function (popoverTriggerEl) {
+            return new bootstrap.Popover(popoverTriggerEl);
+        });
+    });
+
+    // Quick scan URL validation
+    document.addEventListener('DOMContentLoaded', function() {
+        var quickScanForm = document.querySelector('form[action="{{ url_for("start_scan") }}"]');
+        
+        if (quickScanForm) {
+            quickScanForm.addEventListener('submit', function(e) {
+                var urlInput = this.querySelector('input[name="url"]');
+                
+                if (urlInput && urlInput.value) {
+                    // Basic URL validation
+                    if (!urlInput.value.startsWith('http://') && !urlInput.value.startsWith('https://')) {
+                        e.preventDefault();
+                        alert('Please enter a valid URL starting with http:// or https://');
+                    }
+                }
+            });
+        }
+    });
+
+    // Dashboard card hover effects
+    document.addEventListener('DOMContentLoaded', function() {
+        var dashboardCards = document.querySelectorAll('.dashboard-card');
+        
+        dashboardCards.forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                this.style.transform = 'translateY(-5px)';
+                this.style.boxShadow = '0 10px 20px rgba(0, 0, 0, 0.1)';
+            });
+            
+            card.addEventListener('mouseleave', function() {
+                this.style.transform = 'translateY(0)';
+                this.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+            });
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block title %}WASSp - Configuration{% endblock %}
+
+{% block content %}
+<div class="container main-container">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-4">
+                <i class="fas fa-cog text-primary"></i> WASSp Configuration
+            </h1>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-lg-10 mx-auto">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-sliders-h"></i> Application Settings</h3>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('configure') }}">
+                        <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="scanner-tab" data-bs-toggle="tab" data-bs-target="#scanner" type="button" role="tab">
+                                    <i class="fas fa-search"></i> Scanner
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="notifications-tab" data-bs-toggle="tab" data-bs-target="#notifications" type="button" role="tab">
+                                    <i class="fas fa-bell"></i> Notifications
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="integrations-tab" data-bs-toggle="tab" data-bs-target="#integrations" type="button" role="tab">
+                                    <i class="fas fa-plug"></i> Integrations
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="ai-tab" data-bs-toggle="tab" data-bs-target="#ai" type="button" role="tab">
+                                    <i class="fas fa-robot"></i> AI Feature
+                                </button>
+                            </li>
+                        </ul>
+                        
+                        <div class="tab-content" id="configTabsContent">
+                            <!-- Scanner Settings -->
+                            <div class="tab-pane fade show active" id="scanner" role="tabpanel">
+                                <h4 class="border-bottom pb-2 mb-3">Scanner Settings</h4>
+                                
+                                <div class="mb-3">
+                                    <label for="scan_depth" class="form-label">Default Crawl Depth</label>
+                                    <input type="range" class="form-range" id="scan_depth" name="scan_depth" min="1" max="5" value="{{ config.get('scan_depth', 2) }}">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Shallow (Faster)</span>
+                                        <span id="depthValue">{{ config.get('scan_depth', 2) }}</span>
+                                        <span>Deep (Thorough)</span>
+                                    </div>
+                                    <div class="form-text">How many levels deep to crawl websites during full scans.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="max_urls_per_scan" class="form-label">Maximum URLs Per Scan</label>
+                                    <input type="number" class="form-control" id="max_urls_per_scan" name="max_urls_per_scan" value="{{ config.get('max_urls_per_scan', 100) }}" min="10" max="500">
+                                    <div class="form-text">Maximum number of URLs to scan in a single session. Higher values may impact performance.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="timeout" class="form-label">Request Timeout (seconds)</label>
+                                    <input type="number" class="form-control" id="timeout" name="timeout" value="{{ config.get('timeout', 30) }}" min="5" max="120">
+                                    <div class="form-text">Maximum time to wait for a response from a website before timing out.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="user_agent" class="form-label">User Agent</label>
+                                    <input type="text" class="form-control" id="user_agent" name="user_agent" value="{{ config.get('user_agent', 'WASSp Scanner/1.0') }}">
+                                    <div class="form-text">User agent string to use when making requests to websites.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="concurrency" class="form-label">Concurrency</label>
+                                    <input type="number" class="form-control" id="concurrency" name="concurrency" value="{{ config.get('concurrency', 5) }}" min="1" max="20">
+                                    <div class="form-text">Number of concurrent requests to make during scanning. Higher values may be faster but more aggressive.</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Notification Settings -->
+                            <div class="tab-pane fade" id="notifications" role="tabpanel">
+                                <h4 class="border-bottom pb-2 mb-3">Notification Settings</h4>
+                                
+                                <div class="mb-3">
+                                    <label for="pushover_user_key" class="form-label">Pushover User Key</label>
+                                    <input type="text" class="form-control" id="pushover_user_key" name="pushover_user_key" value="{{ config.get('pushover_user_key', '') }}">
+                                    <div class="form-text">
+                                        Your Pushover user key from <a href="https://pushover.net" target="_blank">pushover.net</a> dashboard.
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="pushover_api_token" class="form-label">Pushover API Token</label>
+                                    <input type="text" class="form-control" id="pushover_api_token" name="pushover_api_token" value="{{ config.get('pushover_api_token', '') }}">
+                                    <div class="form-text">
+                                        Create an application on Pushover to get an API token.
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="custom_message" class="form-label">Custom Notification Message</label>
+                                    <textarea class="form-control" id="custom_message" name="custom_message" rows="2">{{ config.get('custom_message', '') }}</textarea>
+                                    <div class="form-text">Optional custom text to prepend to all notifications.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="notify_on_scan_complete" name="notify_on_scan_complete" {% if config.get('notify_on_scan_complete', false) %}checked{% endif %}>
+                                        <label class="form-check-label" for="notify_on_scan_complete">Notify when scans complete</label>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="notify_on_vulnerabilities" name="notify_on_vulnerabilities" {% if config.get('notify_on_vulnerabilities', true) %}checked{% endif %}>
+                                        <label class="form-check-label" for="notify_on_vulnerabilities">Notify when vulnerabilities are found</label>
+                                    </div>
+                                </div>
+                                
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle"></i> You can test your notification settings using the button below after saving.
+                                </div>
+                                
+                                <div class="text-center mb-3">
+                                    <button type="button" id="testNotificationBtn" class="btn btn-outline-primary">
+                                        <i class="fas fa-paper-plane"></i> Send Test Notification
+                                    </button>
+                                    <div id="testNotificationResult" class="mt-2"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Integrations Settings -->
+                            <div class="tab-pane fade" id="integrations" role="tabpanel">
+                                <h4 class="border-bottom pb-2 mb-3">Integrations</h4>
+                                
+                                <div class="mb-3">
+                                    <label for="ipqs_api_key" class="form-label">IP Quality Score API Key</label>
+                                    <input type="text" class="form-control" id="ipqs_api_key" name="ipqs_api_key" value="{{ config.get('ipqs_api_key', '') }}">
+                                    <div class="form-text">
+                                        API key for <a href="https://www.ipqualityscore.com/" target="_blank">IP Quality Score</a> to check URL/domain reputation.
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="enable_cloudflare" name="enable_cloudflare" {% if config.get('enable_cloudflare', true) %}checked{% endif %}>
+                                        <label class="form-check-label" for="enable_cloudflare">Enable Cloudflare Tunnel</label>
+                                    </div>
+                                    <div class="form-text">Allow creating Cloudflare tunnels for remote access to WASSp.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="enable_ngrok" name="enable_ngrok" {% if config.get('enable_ngrok', true) %}checked{% endif %}>
+                                        <label class="form-check-label" for="enable_ngrok">Enable Ngrok Tunnel</label>
+                                    </div>
+                                    <div class="form-text">Allow creating Ngrok tunnels for remote access to WASSp.</div>
+                                </div>
+                            </div>
+                            
+                            <!-- AI Feature Settings -->
+                            <div class="tab-pane fade" id="ai" role="tabpanel">
+                                <h4 class="border-bottom pb-2 mb-3">AI-Powered Vulnerability Analysis</h4>
+                                
+                                <div class="alert alert-info">
+                                    <div class="d-flex">
+                                        <div class="me-3">
+                                            <i class="fas fa-robot fa-2x"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="mb-1">About the AI Feature</h5>
+                                            <p class="mb-0">
+                                                This optional feature uses OpenAI's GPT models to analyze detected vulnerabilities and provide detailed remediation advice tailored to your specific issues. You need an OpenAI API key to use this feature.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="enable_ai_features" name="enable_ai_features" {% if config.get('enable_ai_features', false) %}checked{% endif %}>
+                                        <label class="form-check-label" for="enable_ai_features">Enable AI-Powered Analysis</label>
+                                    </div>
+                                    <div class="form-text">When enabled, vulnerabilities can be analyzed to provide detailed, context-specific remediation advice.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="openai_api_key" class="form-label">OpenAI API Key</label>
+                                    <input type="password" class="form-control" id="openai_api_key" name="openai_api_key" value="{{ config.get('openai_api_key', '') }}">
+                                    <div class="form-text">
+                                        Your <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI API key</a> to use for AI-powered vulnerability analysis.
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ai_model" class="form-label">AI Model</label>
+                                    <select class="form-select" id="ai_model" name="ai_model">
+                                        <option value="gpt-3.5-turbo" {% if config.get('ai_model') == 'gpt-3.5-turbo' %}selected{% endif %}>GPT-3.5 Turbo (Faster, Lower Cost)</option>
+                                        <option value="gpt-4" {% if config.get('ai_model') == 'gpt-4' %}selected{% endif %}>GPT-4 (More Advanced, Higher Cost)</option>
+                                    </select>
+                                    <div class="form-text">Select which OpenAI model to use for analysis. GPT-3.5 is cheaper but GPT-4 may provide better insights.</div>
+                                </div>
+                                
+                                <div class="alert alert-warning">
+                                    <i class="fas fa-info-circle"></i> <strong>Note:</strong> Using this feature will incur charges on your OpenAI account based on their pricing for API usage.
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center mt-4">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-save"></i> Save Configuration
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="text-center mt-4">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary btn-lg">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Update crawl depth value display
+    document.addEventListener('DOMContentLoaded', function() {
+        const depthInput = document.getElementById('scan_depth');
+        const depthValue = document.getElementById('depthValue');
+        
+        depthInput.addEventListener('input', function() {
+            depthValue.textContent = this.value;
+        });
+        
+        // Test notification
+        const testBtn = document.getElementById('testNotificationBtn');
+        if (testBtn) {
+            testBtn.addEventListener('click', function() {
+                const resultElement = document.getElementById('testNotificationResult');
+                resultElement.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div> Sending test notification...';
+                
+                $.ajax({
+                    url: '{{ url_for("api_test_notification") }}',
+                    method: 'POST',
+                    data: {
+                        message: 'Test notification from WASSp Configuration'
+                    },
+                    success: function(response) {
+                        resultElement.innerHTML = '<div class="alert alert-success mt-2 mb-0 py-1">Test notification sent successfully!</div>';
+                        setTimeout(() => {
+                            resultElement.innerHTML = '';
+                        }, 3000);
+                    },
+                    error: function(xhr) {
+                        const response = xhr.responseJSON || {};
+                        resultElement.innerHTML = '<div class="alert alert-danger mt-2 mb-0 py-1">Error: ' + (response.message || 'Failed to send test notification') + '</div>';
+                    }
+                });
+            });
+        }
+    });
+</script>
+{% endblock %}

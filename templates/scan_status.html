@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block title %}WASSp - Scan in Progress{% endblock %}
+
+{% block content %}
+<div class="container main-container">
+    <div class="row mb-4">
+        <div class="col-12 text-center">
+            <h1 class="mb-4">
+                <i class="fas fa-spinner fa-spin text-primary"></i> Scan in Progress
+            </h1>
+            
+            {% if active_scan %}
+                <div class="alert alert-info">
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            <i class="fas fa-info-circle fa-2x"></i>
+                        </div>
+                        <div class="text-start">
+                            <h5 class="mb-1">Scanning {{ scan_url }}</h5>
+                            <p class="mb-0">WASSp is analyzing the target website. This may take a few minutes depending on the scan type and website complexity.</p>
+                        </div>
+                    </div>
+                </div>
+            {% elif scan_error %}
+                <div class="alert alert-danger">
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            <i class="fas fa-exclamation-triangle fa-2x"></i>
+                        </div>
+                        <div class="text-start">
+                            <h5 class="mb-1">Scan Error</h5>
+                            <p class="mb-0">An error occurred during the scan: {{ scan_error }}</p>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <script>
+                    window.location.href = "{{ url_for('scan_result') }}";
+                </script>
+            {% endif %}
+        </div>
+    </div>
+    
+    {% if active_scan %}
+        <div class="row mb-5">
+            <div class="col-lg-8 mx-auto">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="text-center mb-4">Scan Progress</h4>
+                        
+                        <div class="progress mb-4" style="height: 25px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" id="scanProgressBar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                        
+                        <div id="scanStatus" class="text-center mb-4">
+                            <span class="badge bg-primary">Initializing scan...</span>
+                        </div>
+                        
+                        <div class="text-center">
+                            <p id="scannedUrlCount" class="mb-1">0 URLs scanned</p>
+                            <p id="currentActivity" class="text-muted mb-3">Preparing scan...</p>
+                            
+                            <form action="{{ url_for('stop_scan') }}" method="post">
+                                <button type="submit" class="btn btn-danger">
+                                    <i class="fas fa-stop-circle"></i> Stop Scan
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-lg-8 mx-auto">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="mb-0"><i class="fas fa-tasks"></i> Scan Details</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <tr>
+                                    <th width="30%">Target URL:</th>
+                                    <td id="targetUrl">{{ scan_url }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Scan Type:</th>
+                                    <td id="scanType">
+                                        {% if scan_type == 'basic' %}
+                                            <span class="badge bg-success">Basic</span>
+                                        {% elif scan_type == 'full' %}
+                                            <span class="badge bg-warning">Full</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">Advanced</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Crawl Depth:</th>
+                                    <td id="crawlDepth">{{ crawl_depth }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Elapsed Time:</th>
+                                    <td id="elapsedTime">00:00:00</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="text-center mt-5">
+            <a href="{{ url_for('index') }}" class="btn btn-primary btn-lg me-3">
+                <i class="fas fa-home"></i> Back to Home
+            </a>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-secondary btn-lg">
+                <i class="fas fa-tachometer-alt"></i> Go to Dashboard
+            </a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if active_scan %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        let startTime = new Date();
+        let progressInterval;
+        let pollInterval;
+        
+        // Update elapsed time
+        function updateElapsedTime() {
+            const now = new Date();
+            const elapsed = Math.floor((now - startTime) / 1000);
+            
+            const hours = Math.floor(elapsed / 3600);
+            const minutes = Math.floor((elapsed % 3600) / 60);
+            const seconds = elapsed % 60;
+            
+            const timeStr = 
+                hours.toString().padStart(2, '0') + ':' +
+                minutes.toString().padStart(2, '0') + ':' +
+                seconds.toString().padStart(2, '0');
+            
+            document.getElementById('elapsedTime').textContent = timeStr;
+        }
+        
+        // Simulate progress (this will be replaced by actual progress data from backend)
+        function simulateProgress() {
+            const progressBar = document.getElementById('scanProgressBar');
+            const currentProgress = parseInt(progressBar.style.width);
+            
+            // Ensure progress never reaches 100% until actually complete
+            // Progress gets slower as it approaches 95%
+            if (currentProgress < 95) {
+                const step = Math.max(1, 5 - Math.floor(currentProgress / 20));
+                const newProgress = Math.min(95, currentProgress + step);
+                progressBar.style.width = newProgress + '%';
+                progressBar.textContent = newProgress + '%';
+                progressBar.setAttribute('aria-valuenow', newProgress);
+            }
+        }
+        
+        // Check scan status from server
+        function checkScanStatus() {
+            $.ajax({
+                url: '{{ url_for("api_scan_progress") }}',
+                method: 'GET',
+                success: function(response) {
+                    // Update scan status based on response
+                    if (!response.active && response.completed) {
+                        // Scan completed
+                        clearInterval(progressInterval);
+                        clearInterval(pollInterval);
+                        
+                        // Update UI to show 100% completion
+                        const progressBar = document.getElementById('scanProgressBar');
+                        progressBar.style.width = '100%';
+                        progressBar.textContent = '100%';
+                        progressBar.setAttribute('aria-valuenow', 100);
+                        
+                        // Redirect to results page
+                        window.location.href = "{{ url_for('scan_result') }}";
+                    } 
+                    else if (!response.active && response.error) {
+                        // Scan error
+                        clearInterval(progressInterval);
+                        clearInterval(pollInterval);
+                        
+                        // Show error message
+                        document.getElementById('scanStatus').innerHTML = '<span class="badge bg-danger">Scan Failed</span>';
+                        document.getElementById('currentActivity').textContent = 'Error: ' + response.error;
+                    }
+                    else if (response.active) {
+                        // Update scanned URLs count
+                        document.getElementById('scannedUrlCount').textContent = 
+                            response.scanned_urls + ' URLs scanned';
+                            
+                        // Update current activity
+                        if (response.scanned_urls === 0) {
+                            document.getElementById('currentActivity').textContent = 'Crawling the website...';
+                        } else {
+                            document.getElementById('currentActivity').textContent = 'Scanning for vulnerabilities...';
+                        }
+                    }
+                },
+                error: function() {
+                    console.error('Failed to check scan status');
+                }
+            });
+        }
+        
+        // Start timers
+        updateElapsedTime(); // Initial call
+        const elapsedInterval = setInterval(updateElapsedTime, 1000);
+        progressInterval = setInterval(simulateProgress, 1500);
+        pollInterval = setInterval(checkScanStatus, 2000);
+        
+        // Initial status check
+        checkScanStatus();
+    });
+</script>
+{% endif %}
+{% endblock %}
