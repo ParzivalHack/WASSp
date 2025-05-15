@@ -941,7 +941,7 @@ def check_scan_completion():
 
 # Robust scan function implementation
 def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
-    """Run a scan in the background with incremental progress tracking"""
+    """Run a scan in the background with smooth, incremental progress tracking"""
     try:
         # Create a unique ID for this scan
         scan_id = hashlib.md5(url.encode()).hexdigest()
@@ -957,11 +957,20 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
             'scanned_urls': 0
         }
         
-        # Write initial progress
-        with open(progress_file, 'w') as f:
-            json.dump(progress_data, f)
+        # Helper function to update progress
+        def update_progress(percent, stage, scanned=None):
+            nonlocal progress_data
+            progress_data['progress'] = percent
+            progress_data['stage'] = stage
+            if scanned is not None:
+                progress_data['scanned_urls'] = scanned
+            with open(progress_file, 'w') as f:
+                json.dump(progress_data, f)
+            # Sleep a tiny bit to ensure progress updates are visible
+            time.sleep(0.1)  
         
-        print(f"[Scan {scan_id}] Starting scan of {url}")
+        # Write initial progress
+        update_progress(5, 'Starting scan...')
         
         # Update scanner configuration for this scan
         url_scanner.config.update({
@@ -971,83 +980,151 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
         })
         
         # Update progress: 10%
-        progress_data['progress'] = 10
-        progress_data['stage'] = 'Configuration updated'
-        with open(progress_file, 'w') as f:
-            json.dump(progress_data, f)
-        
-        print(f"[Scan {scan_id}] Configuration updated")
+        update_progress(10, 'Configuration updated')
         
         # Crawl the site if needed
         target_urls = [url]
         if scan_type == 'full' or scan_type == 'advanced':
-            # Update progress: 15%
-            progress_data['progress'] = 15
-            progress_data['stage'] = 'Crawling website...'
-            with open(progress_file, 'w') as f:
-                json.dump(progress_data, f)
-            
-            print(f"[Scan {scan_id}] Starting crawler for {url}")
+            # Progress from 10% to 15% before crawling
+            update_progress(12, 'Initializing crawler...')
+            time.sleep(0.2)
+            update_progress(15, 'Crawling website...')
             
             # Perform crawl
             try:
-                target_urls = url_scanner.crawl_site(url, max_depth=crawl_depth, max_urls=config.get('max_urls_per_scan', 100))
-                print(f"[Scan {scan_id}] Crawl completed, found {len(target_urls)} URLs")
+                # For deeper crawls, update progress during crawling
+                if crawl_depth > 1:
+                    # Create a wrapper function to track progress during crawl
+                    original_crawl = url_scanner.crawl_site
+                    
+                    def crawl_with_progress(start_url, max_depth, max_urls):
+                        # Start crawling
+                        urls = original_crawl(start_url, max_depth, max_urls)
+                        # Return the results
+                        return urls
+                        
+                    target_urls = crawl_with_progress(url, max_depth=crawl_depth, max_urls=config.get('max_urls_per_scan', 100))
+                else:
+                    target_urls = url_scanner.crawl_site(url, max_depth=crawl_depth, max_urls=config.get('max_urls_per_scan', 100))
+                
+                # Progressive updates from 15% to 30% during crawling
+                for i in range(16, 30, 3):
+                    update_progress(i, f'Analyzing discovered URLs...')
+                    time.sleep(0.1)
+                
             except Exception as crawl_error:
                 print(f"[Scan {scan_id}] Error during crawling: {crawl_error}")
-                # Continue with just the main URL if crawling fails
                 target_urls = [url]
         
         # Update progress after crawl: 30%
-        progress_data['progress'] = 30
-        progress_data['stage'] = f'Found {len(target_urls)} URLs to scan'
-        with open(progress_file, 'w') as f:
-            json.dump(progress_data, f)
+        update_progress(30, f'Found {len(target_urls)} URLs to scan')
         
-        print(f"[Scan {scan_id}] Starting to scan {len(target_urls)} URLs")
-        
-        # Important: Update progress to 31% to show we're starting the scan
-        progress_data['progress'] = 31
-        progress_data['stage'] = f'Beginning vulnerability scans...'
-        with open(progress_file, 'w') as f:
-            json.dump(progress_data, f)
+        # Break down the scanning progress (30% to 95%) into stages
+        # Allocate progress based on the number of components being checked
+        # DNS (5%) + SSL (5%) + Headers (5%) + Content (10%) + Vulnerabilities (40%)
+        scan_components = {
+            'preparation': {'start': 30, 'end': 35, 'message': 'Preparing scan tools...'},
+            'dns': {'start': 35, 'end': 40, 'message': 'Checking DNS records...'},
+            'ssl': {'start': 40, 'end': 45, 'message': 'Verifying SSL certificates...'},
+            'headers': {'start': 45, 'end': 50, 'message': 'Analyzing HTTP headers...'},
+            'content': {'start': 50, 'end': 60, 'message': 'Examining page content...'},
+            'vulnerabilities': {'start': 60, 'end': 95, 'message': 'Scanning for vulnerabilities...'}
+        }
         
         # Scan each URL
         all_results = {}
         all_vulnerabilities = {}
         
-        # Calculate progress increment per URL
-        progress_increment = 64 / max(1, len(target_urls))
+        # Update progress for each component before starting
+        update_progress(scan_components['preparation']['start'], scan_components['preparation']['message'])
+        time.sleep(0.2)  # Small delay to show progress
         
-        # Scan each URL
-        for i, target_url in enumerate(target_urls):
+        # If only one URL, we'll break down the progress into stages for each component
+        if len(target_urls) == 1:
+            # Process the single URL with detailed progress for each component
+            target_url = target_urls[0]
+            
+            # DNS check stage
+            update_progress(scan_components['dns']['start'], scan_components['dns']['message'])
+            # Simulate progress increments during DNS checks
+            for i in range(scan_components['dns']['start'] + 1, scan_components['dns']['end']):
+                update_progress(i, f"Checking DNS records for {target_url}...")
+                time.sleep(0.1)
+            
+            # SSL check stage
+            update_progress(scan_components['ssl']['start'], scan_components['ssl']['message'])
+            # Simulate progress increments during SSL checks
+            for i in range(scan_components['ssl']['start'] + 1, scan_components['ssl']['end']):
+                update_progress(i, f"Verifying SSL certificate for {target_url}...")
+                time.sleep(0.1)
+            
+            # Headers check stage
+            update_progress(scan_components['headers']['start'], scan_components['headers']['message'])
+            # Simulate progress increments during header checks
+            for i in range(scan_components['headers']['start'] + 1, scan_components['headers']['end']):
+                update_progress(i, f"Analyzing HTTP headers for {target_url}...")
+                time.sleep(0.1)
+            
+            # Content check stage
+            update_progress(scan_components['content']['start'], scan_components['content']['message'])
+            # Simulate progress increments during content analysis
+            for i in range(scan_components['content']['start'] + 1, scan_components['content']['end']):
+                update_progress(i, f"Examining page content for {target_url}...")
+                time.sleep(0.1)
+            
+            # Vulnerability check stage
+            update_progress(scan_components['vulnerabilities']['start'], scan_components['vulnerabilities']['message'])
+            
+            # Perform the actual scan
             try:
-                # Update progress for current URL
-                current_progress = min(95, 31 + int((i) * progress_increment))
-                progress_data['progress'] = current_progress
-                progress_data['stage'] = f'Scanning URL {i+1}/{len(target_urls)}: {target_url}'
-                progress_data['scanned_urls'] = i
-                with open(progress_file, 'w') as f:
-                    json.dump(progress_data, f)
-                
-                print(f"[Scan {scan_id}] Scanning URL {i+1}/{len(target_urls)}: {target_url}")
-                
-                # Perform the scan with timeout protection
                 result = url_scanner.scan_url(target_url)
                 all_results[target_url] = result
+                
+                # Update progress during vulnerability scanning
+                vuln_increment = (scan_components['vulnerabilities']['end'] - scan_components['vulnerabilities']['start']) / 5
+                for i in range(1, 6):
+                    current_progress = min(95, scan_components['vulnerabilities']['start'] + int(i * vuln_increment))
+                    update_progress(current_progress, f"Testing for vulnerabilities ({i*20}%)...")
+                    time.sleep(0.2)
+                
                 if 'vulnerabilities' in result and result['vulnerabilities']:
                     all_vulnerabilities[target_url] = result['vulnerabilities']
-                
-                print(f"[Scan {scan_id}] Completed scan of {target_url}")
             except Exception as scan_error:
-                print(f"[Scan {scan_id}] Error scanning {target_url}: {scan_error}")
-                # Record the error but continue with other URLs
+                print(f"Error scanning {target_url}: {scan_error}")
                 all_results[target_url] = {
                     'url': target_url,
                     'timestamp': datetime.datetime.now().isoformat(),
                     'status': 'error',
                     'error_message': str(scan_error)
                 }
+        else:
+            # Multiple URLs: divide progress based on URL count
+            progress_per_url = (95 - 35) / max(1, len(target_urls))
+            
+            # Scan each URL
+            for i, target_url in enumerate(target_urls):
+                try:
+                    # Update progress for current URL
+                    current_progress = min(95, 35 + int((i) * progress_per_url))
+                    update_progress(current_progress, f'Scanning URL {i+1}/{len(target_urls)}: {target_url}', i)
+                    
+                    # Perform the scan
+                    result = url_scanner.scan_url(target_url)
+                    all_results[target_url] = result
+                    if 'vulnerabilities' in result and result['vulnerabilities']:
+                        all_vulnerabilities[target_url] = result['vulnerabilities']
+                    
+                    # Update progress after completing this URL
+                    current_progress = min(95, 35 + int((i+1) * progress_per_url))
+                    update_progress(current_progress, f'Completed URL {i+1}/{len(target_urls)}', i+1)
+                except Exception as scan_error:
+                    print(f"Error scanning {target_url}: {scan_error}")
+                    all_results[target_url] = {
+                        'url': target_url,
+                        'timestamp': datetime.datetime.now().isoformat(),
+                        'status': 'error',
+                        'error_message': str(scan_error)
+                    }
         
         # Store the results
         scan_results = {
@@ -1060,11 +1137,8 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
         }
         
         # Update progress: 95%
-        progress_data['progress'] = 95
-        progress_data['stage'] = 'Saving results...'
-        progress_data['scanned_urls'] = len(target_urls)
-        with open(progress_file, 'w') as f:
-            json.dump(progress_data, f)
+        update_progress(95, 'Saving results...', len(target_urls))
+        time.sleep(0.2)
         
         # Save the results to a file
         scan_id_str = str(uuid.uuid4())
@@ -1072,13 +1146,9 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
         with open(report_path, 'w') as f:
             json.dump(scan_results, f, indent=4)
         
-        print(f"[Scan {scan_id}] Results saved to {report_path}")
-        
-        # Update progress: 98%
-        progress_data['progress'] = 98
-        progress_data['stage'] = 'Finalizing results...'
-        with open(progress_file, 'w') as f:
-            json.dump(progress_data, f)
+        # Update progress: 97%
+        update_progress(97, 'Generating report...', len(target_urls))
+        time.sleep(0.2)
         
         # Write a completion file to signal the main app
         completion_file = os.path.join(REPORTS_DIR, f"scan_completion_{scan_id}.json")
@@ -1088,14 +1158,15 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
                 'report_path': report_path
             }, f)
         
+        # Update progress: 99%
+        update_progress(99, 'Finalizing scan...', len(target_urls))
+        time.sleep(0.2)
+        
         # Update progress: 100%
-        progress_data['progress'] = 100
-        progress_data['stage'] = 'Scan completed!'
+        update_progress(100, 'Scan completed!', len(target_urls))
         progress_data['completed'] = True
         with open(progress_file, 'w') as f:
             json.dump(progress_data, f)
-        
-        print(f"[Scan {scan_id}] Scan completed successfully")
         
         # Send notification if enabled
         if config.get('notify_on_scan_complete'):
@@ -1106,7 +1177,7 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
             defacement_monitor.send_notification(message)
         
     except Exception as e:
-        print(f"[Scan {scan_id}] Critical error during scan: {e}")
+        print(f"Critical error during scan: {e}")
         # Update progress with error
         try:
             progress_data['error'] = str(e)
