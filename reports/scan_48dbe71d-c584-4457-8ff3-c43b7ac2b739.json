@@ -1,0 +1,97 @@
+{
+    "timestamp": "2025-05-16T00:51:37.512246",
+    "url": "https://sburrobirra.company.site",
+    "scan_type": "basic",
+    "target_urls": [
+        "https://sburrobirra.company.site"
+    ],
+    "results": {
+        "https://sburrobirra.company.site": {
+            "url": "https://sburrobirra.company.site",
+            "timestamp": "2025-05-16T00:51:35.174829",
+            "status": "success",
+            "dns_records": {
+                "A": [
+                    "18.198.58.148",
+                    "3.66.95.248",
+                    "3.120.23.115"
+                ],
+                "AAAA": [],
+                "MX": [],
+                "NS": [],
+                "TXT": [],
+                "SOA": [],
+                "CNAME": [],
+                "IP": "3.120.23.115"
+            },
+            "whois_info": {
+                "domain_name": null,
+                "registrar": null,
+                "whois_server": null,
+                "referral_url": null,
+                "updated_date": null,
+                "creation_date": null,
+                "expiration_date": null,
+                "name_servers": null,
+                "status": null,
+                "emails": null,
+                "dnssec": null,
+                "name": null,
+                "org": null,
+                "address": null,
+                "city": null,
+                "state": null,
+                "registrant_postal_code": null,
+                "country": null
+            },
+            "ssl_info": {
+                "subject": {
+                    "CN": "*.company.site"
+                },
+                "issuer": {
+                    "C": "US",
+                    "O": "Let's Encrypt",
+                    "CN": "R10"
+                },
+                "version": 2,
+                "serial_number": 498371950921376510556620972145470171920712,
+                "not_before": "20250508070154Z",
+                "not_after": "20250806070153Z",
+                "has_expired": false
+            },
+            "headers": {
+                "Date": "Thu, 15 May 2025 22:51:36 GMT",
+                "Content-Type": "text/html;  charset=utf-8",
+                "Connection": "keep-alive",
+                "X-Frame-Options": "SAMEORIGIN",
+                "Content-Encoding": "gzip",
+                "Vary": "Accept-Encoding",
+                "Strict-Transport-Security": "max-age=31536000"
+            },
+            "content_info": {
+                "title": "SburroBirra\u2122",
+                "meta_tags": {
+                    "viewport": "height=device-height, width=device-width, initial-scale=1.0, maximum-scale=5.0, minimum-scale=1.0, viewport-fit=cover",
+                    "referrer": "origin",
+                    "generator": "ec-instant-site",
+                    "chrome": "nointentdetection",
+                    "theme-color": "#FFFFFF"
+                },
+                "internal_links": 28,
+                "external_links": 17,
+                "js_frameworks": [
+                    "jQuery"
+                ],
+                "content_length": 492233,
+                "content_type": "text/html;  charset=utf-8",
+                "content_hash": "05cffadbac82e27c47723b6217bc7d66abb515640549bdb1186ce0e6a2c4b755",
+                "status_code": 200
+            },
+            "ip_quality_check": {
+                "error": "IP Quality Score API key not configured"
+            },
+            "vulnerabilities": []
+        }
+    },
+    "vulnerabilities_found": false
+}

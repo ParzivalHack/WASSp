@@ -1,5 +1,6 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file, has_request_context
 from flask_apscheduler import APScheduler
+from flask_talisman import Talisman  # Add import for security headers
 import requests
 from bs4 import BeautifulSoup
 import hashlib
@@ -29,12 +30,34 @@ import ipaddress
 from pyngrok import ngrok
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor
+import signal
+import sys
 
 app = Flask(__name__)
 app.secret_key = 'wasp_super_secret_key'
 scheduler = APScheduler()
 scheduler.init_app(app)
 scheduler.start()
+
+# Add Talisman for security headers
+talisman = Talisman(
+    app,
+    content_security_policy={
+        'default-src': "'self'",
+        'script-src': ["'self'", "'unsafe-inline'", "cdnjs.cloudflare.com"],
+        'style-src': ["'self'", "'unsafe-inline'", "cdnjs.cloudflare.com"],
+        'img-src': ["'self'", "data:"],
+        'font-src': ["'self'", "cdnjs.cloudflare.com"],
+        'connect-src': ["'self'"]
+    },
+    force_https=False,  # Set to True in production
+    session_cookie_secure=False,  # Set to True in production
+    feature_policy={
+        'geolocation': "'none'",
+        'microphone': "'none'",
+        'camera': "'none'"
+    }
+)
 
 # Global configurations
 CONFIG_DIR = 'config'
@@ -44,9 +67,10 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
 LAST_CHECKS_FILE = os.path.join(CONFIG_DIR, 'last_checks.json')
 STATIC_DIR = 'static'
 IMG_DIR = os.path.join(STATIC_DIR, 'img')
+SCAN_STATUS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scan_status')
 
 # Ensure directories exist
-for directory in [CONFIG_DIR, REPORTS_DIR, SCREENSHOTS_DIR, STATIC_DIR, IMG_DIR]:
+for directory in [CONFIG_DIR, REPORTS_DIR, SCREENSHOTS_DIR, STATIC_DIR, IMG_DIR, SCAN_STATUS_DIR]:
     if not os.path.exists(directory):
         os.makedirs(directory)
 
@@ -75,6 +99,28 @@ default_config = {
     'enable_cloudflare': True,  # Enable Cloudflare tunnels
     'enable_ngrok': True  # Enable Ngrok tunnels
 }
+
+# Initialize session cleanup
+@app.before_request
+def initialize_session():
+    session.permanent = True
+    app.permanent_session_lifetime = datetime.timedelta(hours=2)  # Session expiry
+
+# Session and resources cleanup
+@app.teardown_appcontext
+def cleanup_after_request(exception=None):
+    # Only access session if in a request context
+    if has_request_context():
+        # Clean up any temporary files or resources here
+        screenshots_to_clean = session.get('temp_screenshots', [])
+        for file_path in screenshots_to_clean:
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+        
+        session.pop('temp_screenshots', None)
 
 # Load configuration
 def load_config():
@@ -437,7 +483,7 @@ class URLScanner:
             }
     
     def check_open_directories(self, url):
-        """Check for open directories"""
+        """Check for open directories with improved error handling"""
         parsed_url = urlparse(url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
         
@@ -452,17 +498,25 @@ class URLScanner:
         try:
             headers = {'User-Agent': self.config['user_agent']}
             for directory in directories_to_check:
-                test_url = urljoin(base_url, directory)
-                response = requests.get(test_url, headers=headers, timeout=self.config['timeout'])
-                
-                # Check if the directory listing is enabled
-                if response.status_code == 200 and ("Index of" in response.text or "Directory Listing" in response.text):
-                    return {
-                        "type": "Open Directory",
-                        "description": f"Directory listing enabled at: {directory}",
-                        "url": test_url,
-                        "severity": "Medium"
-                    }
+                try:
+                    test_url = urljoin(base_url, directory)
+                    response = requests.get(test_url, headers=headers, timeout=self.config['timeout'])
+                    
+                    # Check if the directory listing is enabled
+                    if response.status_code == 200 and ("Index of" in response.text or "Directory Listing" in response.text):
+                        return {
+                            "type": "Open Directory",
+                            "description": f"Directory listing enabled at: {directory}",
+                            "url": test_url,
+                            "severity": "Medium"
+                        }
+                except requests.Timeout:
+                    # Skip this directory on timeout, but continue checking others
+                    continue
+                except Exception as dir_error:
+                    # Log the error but continue with other directories
+                    print(f"Error checking directory {directory}: {str(dir_error)}")
+                    continue
             
             return None
         except Exception as e:
@@ -471,9 +525,9 @@ class URLScanner:
                 "description": f"Error checking for open directories: {str(e)}",
                 "severity": "Info"
             }
-    
+
     def check_misconfigurations(self, url):
-        """Check for common misconfigurations"""
+        """Check for common misconfigurations with improved error handling"""
         parsed_url = urlparse(url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
         
@@ -489,39 +543,47 @@ class URLScanner:
         try:
             headers = {'User-Agent': self.config['user_agent']}
             for file_path in files_to_check:
-                test_url = urljoin(base_url, file_path)
-                response = requests.get(test_url, headers=headers, timeout=self.config['timeout'])
-                
-                if response.status_code == 200:
-                    # Check specific patterns for each file
-                    if file_path == "/.git/config" and "[core]" in response.text:
-                        return {
-                            "type": "Git Repository Exposure",
-                            "description": "Git repository configuration is publicly accessible",
-                            "url": test_url,
-                            "severity": "High"
-                        }
-                    elif file_path == "/.env" and "DB_" in response.text:
-                        return {
-                            "type": "Environment File Exposure",
-                            "description": "Environment configuration file is publicly accessible",
-                            "url": test_url,
-                            "severity": "Critical"
-                        }
-                    elif ("wp-config" in file_path or "config.php" in file_path) and "DB_NAME" in response.text:
-                        return {
-                            "type": "Configuration File Exposure",
-                            "description": "PHP configuration file with sensitive information is publicly accessible",
-                            "url": test_url,
-                            "severity": "Critical"
-                        }
-                    elif ("phpinfo" in file_path or "info.php" in file_path) and "PHP Version" in response.text:
-                        return {
-                            "type": "PHP Info Exposure",
-                            "description": "PHP information is publicly accessible",
-                            "url": test_url,
-                            "severity": "Medium"
-                        }
+                try:
+                    test_url = urljoin(base_url, file_path)
+                    response = requests.get(test_url, headers=headers, timeout=self.config['timeout'])
+                    
+                    if response.status_code == 200:
+                        # Check specific patterns for each file
+                        if file_path == "/.git/config" and "[core]" in response.text:
+                            return {
+                                "type": "Git Repository Exposure",
+                                "description": "Git repository configuration is publicly accessible",
+                                "url": test_url,
+                                "severity": "High"
+                            }
+                        elif file_path == "/.env" and "DB_" in response.text:
+                            return {
+                                "type": "Environment File Exposure",
+                                "description": "Environment configuration file is publicly accessible",
+                                "url": test_url,
+                                "severity": "Critical"
+                            }
+                        elif ("wp-config" in file_path or "config.php" in file_path) and "DB_NAME" in response.text:
+                            return {
+                                "type": "Configuration File Exposure",
+                                "description": "PHP configuration file with sensitive information is publicly accessible",
+                                "url": test_url,
+                                "severity": "Critical"
+                            }
+                        elif ("phpinfo" in file_path or "info.php" in file_path) and "PHP Version" in response.text:
+                            return {
+                                "type": "PHP Info Exposure",
+                                "description": "PHP information is publicly accessible",
+                                "url": test_url,
+                                "severity": "Medium"
+                            }
+                except requests.Timeout:
+                    # Skip this file on timeout, but continue checking others
+                    continue
+                except Exception as file_error:
+                    # Log the error but continue with other files
+                    print(f"Error checking file {file_path}: {str(file_error)}")
+                    continue
             
             return None
         except Exception as e:
@@ -531,7 +593,7 @@ class URLScanner:
                 "severity": "Info"
             }
     
-    def crawl_site(self, start_url, max_depth=2, max_urls=100):
+    def crawl_site(self, url, max_depth=2, max_urls=100):
         """Crawl a website to find all URLs to scan"""
         self.visited_urls = set()
         self.url_queue = queue.Queue()
@@ -539,11 +601,11 @@ class URLScanner:
         self.stop_event.clear()
         
         # Parse the starting URL to get the base domain
-        parsed_start_url = urlparse(start_url)
+        parsed_start_url = urlparse(url)
         base_domain = parsed_start_url.netloc
         
         # Add the starting URL to the queue
-        self.url_queue.put((start_url, 0))  # (url, depth)
+        self.url_queue.put((url, 0))  # (url, depth)
         
         discovered_urls = []
         
@@ -624,21 +686,41 @@ class DefacementMonitor:
         return "\n".join(diff)
     
     def take_screenshot(self, url):
-        options = webdriver.ChromeOptions()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        driver = webdriver.Chrome(options=options)
-        
-        # Set screenshot size from config
-        width = self.config.get('screenshot_width', 1920)
-        height = self.config.get('screenshot_height', 1080)
-        driver.set_window_size(width, height)
-        
-        driver.get(url)
-        screenshot = driver.get_screenshot_as_png()
-        driver.quit()
-        return Image.open(io.BytesIO(screenshot))
+        driver = None
+        try:
+            options = webdriver.ChromeOptions()
+            options.add_argument('--headless')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--disable-gpu')
+            options.add_argument('--disable-extensions')
+            
+            driver = webdriver.Chrome(options=options)
+            
+            # Set screenshot size from config
+            width = self.config.get('screenshot_width', 1920)
+            height = self.config.get('screenshot_height', 1080)
+            driver.set_window_size(width, height)
+            
+            # Set page load timeout
+            driver.set_page_load_timeout(self.config.get('timeout', 30))
+            
+            driver.get(url)
+            # Wait a bit for dynamic content to load
+            time.sleep(2)
+            screenshot = driver.get_screenshot_as_png()
+            return Image.open(io.BytesIO(screenshot))
+        except Exception as e:
+            print(f"Error taking screenshot of {url}: {str(e)}")
+            # Return a blank image in case of error
+            return Image.new('RGB', (800, 600), color=(240, 240, 240))
+        finally:
+            # Always close the driver
+            if driver:
+                try:
+                    driver.quit()
+                except:
+                    pass
     
     def compare_screenshots(self, old_screenshot, new_screenshot):
         diff = ImageChops.difference(old_screenshot, new_screenshot)
@@ -826,6 +908,219 @@ url_scanner = URLScanner(config)
 defacement_monitor = DefacementMonitor(config)
 ai_analyzer = AIAnalyzer(config)
 
+def check_scan_completion():
+    """Check if a scan has completed and update session if needed"""
+    # Get current scan URL
+    scan_url = session.get('scan_url')
+    if not scan_url:
+        return
+    
+    # Check if there's a completed scan report file
+    scan_completion_file = os.path.join(REPORTS_DIR, f"scan_completion_{hashlib.md5(scan_url.encode()).hexdigest()}.json")
+    
+    if os.path.exists(scan_completion_file):
+        try:
+            with open(scan_completion_file, 'r') as f:
+                scan_data = json.load(f)
+            
+            # Update session with scan results
+            session['scan_completed'] = True
+            session['scan_results'] = scan_data.get('results')
+            session['report_path'] = scan_data.get('report_path')
+            session['active_scan'] = False
+            session.modified = True
+            
+            # Remove the completion file since we've processed it
+            os.remove(scan_completion_file)
+            
+            return True
+        except:
+            pass
+    
+    return False
+
+# Robust scan function implementation
+def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
+    """Run a scan in the background with incremental progress tracking"""
+    try:
+        # Create a unique ID for this scan
+        scan_id = hashlib.md5(url.encode()).hexdigest()
+        progress_file = os.path.join(REPORTS_DIR, f"scan_progress_{scan_id}.json")
+        
+        # Initialize progress
+        progress_data = {
+            'progress': 5,
+            'stage': 'Starting scan...',
+            'completed': False,
+            'error': None,
+            'url': url,
+            'scanned_urls': 0
+        }
+        
+        # Write initial progress
+        with open(progress_file, 'w') as f:
+            json.dump(progress_data, f)
+        
+        print(f"[Scan {scan_id}] Starting scan of {url}")
+        
+        # Update scanner configuration for this scan
+        url_scanner.config.update({
+            'scan_depth': crawl_depth,
+            'concurrency': concurrency,
+            'timeout': timeout
+        })
+        
+        # Update progress: 10%
+        progress_data['progress'] = 10
+        progress_data['stage'] = 'Configuration updated'
+        with open(progress_file, 'w') as f:
+            json.dump(progress_data, f)
+        
+        print(f"[Scan {scan_id}] Configuration updated")
+        
+        # Crawl the site if needed
+        target_urls = [url]
+        if scan_type == 'full' or scan_type == 'advanced':
+            # Update progress: 15%
+            progress_data['progress'] = 15
+            progress_data['stage'] = 'Crawling website...'
+            with open(progress_file, 'w') as f:
+                json.dump(progress_data, f)
+            
+            print(f"[Scan {scan_id}] Starting crawler for {url}")
+            
+            # Perform crawl
+            try:
+                target_urls = url_scanner.crawl_site(url, max_depth=crawl_depth, max_urls=config.get('max_urls_per_scan', 100))
+                print(f"[Scan {scan_id}] Crawl completed, found {len(target_urls)} URLs")
+            except Exception as crawl_error:
+                print(f"[Scan {scan_id}] Error during crawling: {crawl_error}")
+                # Continue with just the main URL if crawling fails
+                target_urls = [url]
+        
+        # Update progress after crawl: 30%
+        progress_data['progress'] = 30
+        progress_data['stage'] = f'Found {len(target_urls)} URLs to scan'
+        with open(progress_file, 'w') as f:
+            json.dump(progress_data, f)
+        
+        print(f"[Scan {scan_id}] Starting to scan {len(target_urls)} URLs")
+        
+        # Important: Update progress to 31% to show we're starting the scan
+        progress_data['progress'] = 31
+        progress_data['stage'] = f'Beginning vulnerability scans...'
+        with open(progress_file, 'w') as f:
+            json.dump(progress_data, f)
+        
+        # Scan each URL
+        all_results = {}
+        all_vulnerabilities = {}
+        
+        # Calculate progress increment per URL
+        progress_increment = 64 / max(1, len(target_urls))
+        
+        # Scan each URL
+        for i, target_url in enumerate(target_urls):
+            try:
+                # Update progress for current URL
+                current_progress = min(95, 31 + int((i) * progress_increment))
+                progress_data['progress'] = current_progress
+                progress_data['stage'] = f'Scanning URL {i+1}/{len(target_urls)}: {target_url}'
+                progress_data['scanned_urls'] = i
+                with open(progress_file, 'w') as f:
+                    json.dump(progress_data, f)
+                
+                print(f"[Scan {scan_id}] Scanning URL {i+1}/{len(target_urls)}: {target_url}")
+                
+                # Perform the scan with timeout protection
+                result = url_scanner.scan_url(target_url)
+                all_results[target_url] = result
+                if 'vulnerabilities' in result and result['vulnerabilities']:
+                    all_vulnerabilities[target_url] = result['vulnerabilities']
+                
+                print(f"[Scan {scan_id}] Completed scan of {target_url}")
+            except Exception as scan_error:
+                print(f"[Scan {scan_id}] Error scanning {target_url}: {scan_error}")
+                # Record the error but continue with other URLs
+                all_results[target_url] = {
+                    'url': target_url,
+                    'timestamp': datetime.datetime.now().isoformat(),
+                    'status': 'error',
+                    'error_message': str(scan_error)
+                }
+        
+        # Store the results
+        scan_results = {
+            'timestamp': datetime.datetime.now().isoformat(),
+            'url': url,
+            'scan_type': scan_type,
+            'target_urls': target_urls,
+            'results': all_results,
+            'vulnerabilities_found': len(all_vulnerabilities) > 0
+        }
+        
+        # Update progress: 95%
+        progress_data['progress'] = 95
+        progress_data['stage'] = 'Saving results...'
+        progress_data['scanned_urls'] = len(target_urls)
+        with open(progress_file, 'w') as f:
+            json.dump(progress_data, f)
+        
+        # Save the results to a file
+        scan_id_str = str(uuid.uuid4())
+        report_path = os.path.join(REPORTS_DIR, f"scan_{scan_id_str}.json")
+        with open(report_path, 'w') as f:
+            json.dump(scan_results, f, indent=4)
+        
+        print(f"[Scan {scan_id}] Results saved to {report_path}")
+        
+        # Update progress: 98%
+        progress_data['progress'] = 98
+        progress_data['stage'] = 'Finalizing results...'
+        with open(progress_file, 'w') as f:
+            json.dump(progress_data, f)
+        
+        # Write a completion file to signal the main app
+        completion_file = os.path.join(REPORTS_DIR, f"scan_completion_{scan_id}.json")
+        with open(completion_file, 'w') as f:
+            json.dump({
+                'results': scan_results,
+                'report_path': report_path
+            }, f)
+        
+        # Update progress: 100%
+        progress_data['progress'] = 100
+        progress_data['stage'] = 'Scan completed!'
+        progress_data['completed'] = True
+        with open(progress_file, 'w') as f:
+            json.dump(progress_data, f)
+        
+        print(f"[Scan {scan_id}] Scan completed successfully")
+        
+        # Send notification if enabled
+        if config.get('notify_on_scan_complete'):
+            message = f"Scan completed for {url}. "
+            if all_vulnerabilities and config.get('notify_on_vulnerabilities'):
+                vuln_count = sum(len(vulns) for vulns in all_vulnerabilities.values())
+                message += f"Found {vuln_count} vulnerabilities!"
+            defacement_monitor.send_notification(message)
+        
+    except Exception as e:
+        print(f"[Scan {scan_id}] Critical error during scan: {e}")
+        # Update progress with error
+        try:
+            progress_data['error'] = str(e)
+            progress_data['stage'] = 'Error occurred during scan'
+            with open(progress_file, 'w') as f:
+                json.dump(progress_data, f)
+        except:
+            pass
+        
+        # Write error to a file
+        error_file = os.path.join(REPORTS_DIR, f"scan_error_{scan_id}.txt")
+        with open(error_file, 'w') as f:
+            f.write(str(e))
+
 # Flask routes
 @app.route('/')
 def index():
@@ -867,11 +1162,28 @@ def start_scan():
         flash('Please enter a URL to scan', 'danger')
         return redirect(url_for('index'))
     
+    # Clear previous scan completion marker if exists
+    old_url = session.get('scan_url')
+    if old_url:
+        old_completion_file = os.path.join(REPORTS_DIR, f"scan_completion_{hashlib.md5(old_url.encode()).hexdigest()}.json")
+        if os.path.exists(old_completion_file):
+            os.remove(old_completion_file)
+        old_error_file = os.path.join(REPORTS_DIR, f"scan_error_{hashlib.md5(old_url.encode()).hexdigest()}.txt")
+        if os.path.exists(old_error_file):
+            os.remove(old_error_file)
+    
+    # Reset scan-related session data
+    session.pop('scan_completed', None)
+    session.pop('scan_results', None)
+    session.pop('report_path', None)
+    session.pop('scan_error', None)
+    
     # Store scan parameters in session
     session['active_scan'] = True
     session['scan_url'] = url
     session['scan_type'] = scan_type
     session['crawl_depth'] = crawl_depth
+    session.modified = True
     
     # Start the scan in a background thread
     scan_thread = threading.Thread(target=run_scan, args=(url, scan_type, crawl_depth, concurrency, timeout))
@@ -881,71 +1193,26 @@ def start_scan():
     flash('Scan started successfully!', 'success')
     return redirect(url_for('scan_status'))
 
-def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
-    """Run a scan in the background"""
-    try:
-        # Update scanner configuration for this scan
-        url_scanner.config.update({
-            'scan_depth': crawl_depth,
-            'concurrency': concurrency,
-            'timeout': timeout
-        })
-        
-        # Crawl the site if needed
-        target_urls = [url]
-        if scan_type == 'full' or scan_type == 'advanced':
-            target_urls = url_scanner.crawl_site(url, max_depth=crawl_depth, max_urls=config.get('max_urls_per_scan', 100))
-        
-        # Scan each URL
-        all_results = {}
-        all_vulnerabilities = {}
-        for target_url in target_urls:
-            result = url_scanner.scan_url(target_url)
-            all_results[target_url] = result
-            if 'vulnerabilities' in result and result['vulnerabilities']:
-                all_vulnerabilities[target_url] = result['vulnerabilities']
-        
-        # Store the results
-        scan_results = {
-            'timestamp': datetime.datetime.now().isoformat(),
-            'url': url,
-            'scan_type': scan_type,
-            'target_urls': target_urls,
-            'results': all_results,
-            'vulnerabilities_found': len(all_vulnerabilities) > 0
-        }
-        
-        # Save the results to a file
-        scan_id = str(uuid.uuid4())
-        report_path = os.path.join(REPORTS_DIR, f"scan_{scan_id}.json")
-        with open(report_path, 'w') as f:
-            json.dump(scan_results, f, indent=4)
-        
-        # Update session with scan results and status
-        session['scan_results'] = scan_results
-        session['report_path'] = report_path
-        session['scan_id'] = scan_id
-        session['active_scan'] = False
-        session['scan_completed'] = True
-        
-        # Send notification if enabled
-        if config.get('notify_on_scan_complete'):
-            message = f"Scan completed for {url}. "
-            if all_vulnerabilities and config.get('notify_on_vulnerabilities'):
-                vuln_count = sum(len(vulns) for vulns in all_vulnerabilities.values())
-                message += f"Found {vuln_count} vulnerabilities!"
-            defacement_monitor.send_notification(message)
-        
-    except Exception as e:
-        print(f"Error during scan: {str(e)}")
-        session['scan_error'] = str(e)
-        session['active_scan'] = False
-
 @app.route('/scan/status')
 def scan_status():
+    # Check if scan has completed
+    check_scan_completion()
+    
     active_scan = session.get('active_scan', False)
     scan_completed = session.get('scan_completed', False)
     scan_error = session.get('scan_error', None)
+    
+    # Check if there's an error file
+    scan_url = session.get('scan_url')
+    if scan_url and not scan_error:
+        error_file = os.path.join(REPORTS_DIR, f"scan_error_{hashlib.md5(scan_url.encode()).hexdigest()}.txt")
+        if os.path.exists(error_file):
+            with open(error_file, 'r') as f:
+                scan_error = f.read()
+            session['scan_error'] = scan_error
+            session['active_scan'] = False
+            session.modified = True
+            os.remove(error_file)
     
     if scan_completed:
         return redirect(url_for('scan_result'))
@@ -973,6 +1240,7 @@ def scan_result():
 def stop_scan():
     url_scanner.stop_scan()
     session['active_scan'] = False
+    session.modified = True  # Ensure session changes are saved
     flash('Scan stopped', 'warning')
     return redirect(url_for('index'))
 
@@ -1095,7 +1363,101 @@ def set_openai_key():
     # Update AI analyzer
     ai_analyzer.config = config
     
+    # Update session to reflect the change
+    session['ai_config_updated'] = True
+    session.modified = True
+    
     return jsonify({'status': 'success', 'message': 'OpenAI API key configured successfully'})
+
+@app.route('/api/scan_progress')
+def api_scan_progress():
+    """Return the current progress of a scan with detailed status"""
+    # Check for completion before responding
+    completion = check_scan_completion()
+    
+    # Get current scan URL
+    scan_url = session.get('scan_url')
+    if not scan_url:
+        return jsonify({
+            'active': False,
+            'completed': False,
+            'error': 'No active scan',
+            'scanned_urls': 0,
+            'progress': 0,
+            'stage': 'No scan in progress'
+        })
+    
+    # Generate scan ID
+    scan_id = hashlib.md5(scan_url.encode()).hexdigest()
+    
+    # Check if there's a progress file
+    progress_file = os.path.join(REPORTS_DIR, f"scan_progress_{scan_id}.json")
+    if os.path.exists(progress_file):
+        try:
+            with open(progress_file, 'r') as f:
+                progress_data = json.load(f)
+            
+            # If completed, update session and return 100%
+            if progress_data.get('completed', False) or completion:
+                return jsonify({
+                    'active': False,
+                    'completed': True,
+                    'error': None,
+                    'scanned_urls': progress_data.get('scanned_urls', 0),
+                    'progress': 100,
+                    'stage': 'Scan completed successfully!'
+                })
+            
+            # Return current progress
+            return jsonify({
+                'active': True,
+                'completed': False,
+                'error': progress_data.get('error'),
+                'scanned_urls': progress_data.get('scanned_urls', 0),
+                'progress': progress_data.get('progress', 0),
+                'stage': progress_data.get('stage', 'Scanning...')
+            })
+        except Exception as e:
+            print(f"Error reading progress file: {e}")
+    
+    # Check for error file
+    error_file = os.path.join(REPORTS_DIR, f"scan_error_{scan_id}.txt")
+    if os.path.exists(error_file):
+        try:
+            with open(error_file, 'r') as f:
+                error_message = f.read()
+            
+            # Update session with error
+            session['scan_error'] = error_message
+            session['active_scan'] = False
+            session.modified = True
+            
+            # Remove the error file
+            os.remove(error_file)
+            
+            return jsonify({
+                'active': False,
+                'completed': False,
+                'error': error_message,
+                'scanned_urls': 0,
+                'progress': 0,
+                'stage': 'Error occurred'
+            })
+        except:
+            pass
+    
+    # Fall back to session data
+    active_scan = session.get('active_scan', False)
+    completed = session.get('scan_completed', False)
+    
+    return jsonify({
+        'active': active_scan and not completed,
+        'completed': completed,
+        'error': session.get('scan_error'),
+        'scanned_urls': len(session.get('scan_results', {}).get('target_urls', [])) if session.get('scan_results') else 0,
+        'progress': 100 if completed else (10 if active_scan else 0),
+        'stage': 'Scanning in progress...' if active_scan else 'No scan active'
+    })
 
 @app.route('/api/analyze_vulnerabilities', methods=['POST'])
 def api_analyze_vulnerabilities():
@@ -1173,6 +1535,7 @@ def api_analyze_vulnerabilities():
         
         # Update session
         session['scan_results'] = scan_results
+        session.modified = True  # Ensure session changes are saved
         
         return jsonify({
             'status': 'success',
@@ -1308,22 +1671,13 @@ def start_ngrok_tunnel():
         public_url = ngrok.connect(app.config.get("PORT", 5000)).public_url
         flash(f'Ngrok tunnel started! Public URL: {public_url}', 'success')
         session['ngrok_url'] = public_url
+        session.modified = True  # Ensure session changes are saved
     except Exception as e:
         flash(f'Failed to start ngrok tunnel: {str(e)}', 'danger')
     
     return redirect(url_for('dashboard'))
 
 # API endpoints for AJAX calls
-@app.route('/api/scan_progress')
-def api_scan_progress():
-    """Return the current progress of a scan"""
-    return jsonify({
-        'active': session.get('active_scan', False),
-        'completed': session.get('scan_completed', False),
-        'error': session.get('scan_error', None),
-        'scanned_urls': len(session.get('scan_results', {}).get('target_urls', [])) if session.get('scan_results') else 0
-    })
-
 @app.route('/api/test_notification', methods=['POST'])
 def api_test_notification():
     """Send a test notification using Pushover"""
@@ -1371,6 +1725,20 @@ def utility_processor():
     
     return dict(now=now)
 
+# Add signal handling for graceful shutdown
+def signal_handler(sig, frame):
+    print("Shutting down gracefully...")
+    # Clean up any running scans
+    url_scanner.stop_scan()
+    # Stop the scheduler
+    scheduler.shutdown()
+    # Exit
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 # Initialize application
 if __name__ == '__main__':
     # Create default configuration if it doesn't exist
@@ -1378,7 +1746,7 @@ if __name__ == '__main__':
         save_config(default_config)
     
     # Ensure directories exist
-    for directory in [CONFIG_DIR, REPORTS_DIR, SCREENSHOTS_DIR, STATIC_DIR, IMG_DIR]:
+    for directory in [CONFIG_DIR, REPORTS_DIR, SCREENSHOTS_DIR, STATIC_DIR, IMG_DIR, SCAN_STATUS_DIR]:
         if not os.path.exists(directory):
             os.makedirs(directory)
     

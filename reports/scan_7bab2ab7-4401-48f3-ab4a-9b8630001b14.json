@@ -1,0 +1,98 @@
+{
+    "timestamp": "2025-05-15T23:42:01.133617",
+    "url": "https://scrinium-dd.telpress.it",
+    "scan_type": "basic",
+    "target_urls": [
+        "https://scrinium-dd.telpress.it"
+    ],
+    "results": {
+        "https://scrinium-dd.telpress.it": {
+            "url": "https://scrinium-dd.telpress.it",
+            "timestamp": "2025-05-15T23:41:59.020221",
+            "status": "success",
+            "dns_records": {
+                "A": [
+                    "93.63.249.44"
+                ],
+                "AAAA": [],
+                "MX": [],
+                "NS": [],
+                "TXT": [],
+                "SOA": [],
+                "CNAME": [],
+                "IP": "93.63.249.44"
+            },
+            "whois_info": {
+                "domain_name": "telpress.it",
+                "creation_date": "1996-01-29T00:00:00",
+                "updated_date": "2024-10-29T00:54:32",
+                "expiration_date": "2025-10-13T00:00:00",
+                "status": "ok",
+                "name_servers": "dns.telpress.it\n  dns.tws.it",
+                "registrant_organization": "Telpress Italia S.r.l.",
+                "registrant_address": "Via Maestri del Lavoro 1b",
+                "admin_address": "VIA EMANUELE GIANTURCO 5",
+                "admin_organization": "Telpress Italia S.r.l.",
+                "admin_name": "Pasquale D'Innella Capano",
+                "tech_address": "VIA EMANUELE GIANTURCO 5",
+                "tech_organization": "Telpress Italia S.r.l.",
+                "tech_name": "Pasquale D'Innella Capano",
+                "registrar_address": null,
+                "registrar": "Aruba s.p.a.",
+                "registrar_name": "ARUBA-REG"
+            },
+            "ssl_info": {
+                "subject": {
+                    "CN": "scrinium-dd.telpress.it"
+                },
+                "issuer": {
+                    "C": "US",
+                    "O": "Let's Encrypt",
+                    "CN": "R10"
+                },
+                "version": 2,
+                "serial_number": 582711536824586778091461391582858171750291,
+                "not_before": "20250407133703Z",
+                "not_after": "20250706133702Z",
+                "has_expired": false
+            },
+            "headers": {
+                "Server": "nginx",
+                "Date": "Thu, 15 May 2025 21:41:59 GMT",
+                "Content-Type": "text/html; charset=UTF-8",
+                "Connection": "keep-alive",
+                "Content-Encoding": "gzip"
+            },
+            "content_info": {
+                "title": "Telpress Scrinium",
+                "meta_tags": {
+                    "viewport": "width=device-width, initial-scale=1, shrink-to-fit=no",
+                    "description": "",
+                    "author": "",
+                    "robots": "noindex"
+                },
+                "internal_links": 0,
+                "external_links": 1,
+                "js_frameworks": [
+                    "Bootstrap"
+                ],
+                "content_length": 3859,
+                "content_type": "text/html; charset=UTF-8",
+                "content_hash": "eb65aa9d4c2c7f3574c9b75026ea5baf0d64c1e21d5e129240b54ab142d2819e",
+                "status_code": 200
+            },
+            "ip_quality_check": {
+                "error": "IP Quality Score API key not configured"
+            },
+            "vulnerabilities": [
+                {
+                    "type": "PHP Info Exposure",
+                    "description": "PHP information is publicly accessible",
+                    "url": "https://scrinium-dd.telpress.it/info.php",
+                    "severity": "Medium"
+                }
+            ]
+        }
+    },
+    "vulnerabilities_found": true
+}
