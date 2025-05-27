@@ -1,8 +1,10 @@
 {
-    "pushover_user_key": "",
-    "pushover_api_token": "",
-    "monitored_urls": [],
-    "custom_message": "",
+    "pushover_user_key": "uq5r2yyfgddmd352yw2xippcwy8ee5",
+    "pushover_api_token": "addv55xz8yrqaj8uqsnf16zhcdn12v",
+    "monitored_urls": [
+        "https://voyxa.com"
+    ],
+    "custom_message": "Test Notification",
     "ignore_patterns": [],
     "change_threshold": 0.05,
     "scan_depth": 2,
@@ -20,5 +22,6 @@
     "notify_on_scan_complete": false,
     "notify_on_vulnerabilities": true,
     "enable_cloudflare": true,
-    "enable_ngrok": true
+    "enable_ngrok": true,
+    "cloudflared_path": "C:\\Users\\pierg\\Desktop\\cloudflared.exe.exe"
 }

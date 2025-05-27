@@ -32,6 +32,7 @@ from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor
 import signal
 import sys
+import shutil
 
 app = Flask(__name__)
 app.secret_key = 'wasp_super_secret_key'
@@ -68,6 +69,8 @@ LAST_CHECKS_FILE = os.path.join(CONFIG_DIR, 'last_checks.json')
 STATIC_DIR = 'static'
 IMG_DIR = os.path.join(STATIC_DIR, 'img')
 SCAN_STATUS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scan_status')
+CLOUDFLARE_URL_FILE = os.path.join(CONFIG_DIR, 'cloudflare_url.txt')
+CLOUDFLARE_PID_FILE = os.path.join(CONFIG_DIR, 'cloudflare_pid.txt')
 
 # Ensure directories exist
 for directory in [CONFIG_DIR, REPORTS_DIR, SCREENSHOTS_DIR, STATIC_DIR, IMG_DIR, SCAN_STATUS_DIR]:
@@ -1192,6 +1195,41 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
         with open(error_file, 'w') as f:
             f.write(str(e))
 
+# Cloudflare functions
+def get_cloudflare_url():
+    """Get the Cloudflare tunnel URL from the file"""
+    if os.path.exists(CLOUDFLARE_URL_FILE):
+        try:
+            with open(CLOUDFLARE_URL_FILE, 'r') as f:
+                return f.read().strip()
+        except:
+            return None
+    return None
+
+def is_cloudflare_running():
+    """Check if the Cloudflare tunnel is running"""
+    if os.path.exists(CLOUDFLARE_PID_FILE):
+        try:
+            with open(CLOUDFLARE_PID_FILE, 'r') as f:
+                pid = int(f.read().strip())
+            
+            # Check if process is running
+            if os.name == 'nt':  # Windows
+                try:
+                    subprocess.check_output(['tasklist', '/FI', f'PID eq {pid}'], stderr=subprocess.DEVNULL)
+                    return True
+                except:
+                    return False
+            else:  # Unix/Linux
+                try:
+                    os.kill(pid, 0)
+                    return True
+                except:
+                    return False
+        except:
+            return False
+    return False
+
 # Flask routes
 @app.route('/')
 def index():
@@ -1211,6 +1249,24 @@ def dashboard():
     # Get monitored URLs and last checks
     monitored_urls = config.get('monitored_urls', [])
     
+    # Check for Cloudflare tunnel URL and status
+    cloudflare_url = get_cloudflare_url()
+    cloudflare_running = is_cloudflare_running()
+    
+    # Clean up stale Cloudflare files if needed
+    if not cloudflare_running and os.path.exists(CLOUDFLARE_PID_FILE):
+        try:
+            os.remove(CLOUDFLARE_PID_FILE)
+        except:
+            pass
+        
+    if not cloudflare_running and cloudflare_url and os.path.exists(CLOUDFLARE_URL_FILE):
+        try:
+            os.remove(CLOUDFLARE_URL_FILE)
+            cloudflare_url = None
+        except:
+            pass
+    
     return render_template(
         'dashboard.html',
         active_scan=active_scan,
@@ -1218,7 +1274,10 @@ def dashboard():
         monitor_job_status=monitor_job_status,
         monitored_urls=monitored_urls,
         last_checks=defacement_monitor.last_checks,
-        config=config
+        config=config,
+        cloudflare_url=cloudflare_url,
+        cloudflare_running=cloudflare_running,
+        ngrok_url=session.get('ngrok_url')
     )
 
 @app.route('/scan', methods=['POST'])
@@ -1391,8 +1450,10 @@ def configure():
             'notify_on_vulnerabilities': request.form.get('notify_on_vulnerabilities') == 'on',
             'enable_cloudflare': request.form.get('enable_cloudflare') == 'on',
             'enable_ngrok': request.form.get('enable_ngrok') == 'on',
-            'enable_ai_features': request.form.get('enable_ai_features') == 'on'
+            'enable_ai_features': request.form.get('enable_ai_features') == 'on',
+            'cloudflared_path': request.form.get('cloudflared_path', '')
         })
+        
         
         # Only update OpenAI API key if it's not empty (to avoid overwriting with empty string)
         openai_api_key = request.form.get('openai_api_key', '')
@@ -1716,19 +1777,124 @@ def get_defacement_screenshot(url):
 
 @app.route('/start_cloudflare_tunnel', methods=['POST'])
 def start_cloudflare_tunnel():
-    """Start a Cloudflare tunnel for public access"""
+    """Start a Cloudflare tunnel for public access using a simpler approach"""
     if not config.get('enable_cloudflare', True):
         flash('Cloudflare tunnels are disabled in the configuration', 'danger')
         return redirect(url_for('dashboard'))
     
+    # Get cloudflared executable path from config or use default paths
+    cloudflared_path = config.get('cloudflared_path', '')
+    if not cloudflared_path:
+        # Try common locations
+        possible_paths = [
+            'cloudflared',  # If in PATH
+            os.path.expanduser('~/.cloudflared/cloudflared'),
+            os.path.expanduser('~/.cloudflared/cloudflared.exe'),
+            'C:\\Users\\{}\\AppData\\Local\\cloudflared\\cloudflared.exe'.format(os.getenv('USERNAME')),
+            'C:\\cloudflared\\cloudflared.exe',
+            '/usr/local/bin/cloudflared',
+            '/usr/bin/cloudflared'
+        ]
+        
+        for path in possible_paths:
+            try:
+                # Test if executable exists
+                if os.path.isfile(path) or (path == 'cloudflared' and shutil.which('cloudflared')):
+                    cloudflared_path = path
+                    break
+            except:
+                continue
+    
+    if not cloudflared_path:
+        flash('Cloudflared not found. Please install it from https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation', 'danger')
+        return redirect(url_for('dashboard'))
+    
     try:
-        # This would require cloudflared to be installed on the system
-        subprocess.Popen(['cloudflared', 'tunnel', '--url', f'http://localhost:{app.config.get("PORT", 5000)}'])
-        flash('Cloudflare tunnel started!', 'success')
+        # Simple approach: run cloudflared and capture its output
+        tunnel_process = subprocess.Popen(
+            [cloudflared_path, 'tunnel', '--url', f'http://localhost:{app.config.get("PORT", 5000)}'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
+        
+        # Create a thread to monitor the output
+        def monitor_output():
+            for line in tunnel_process.stdout:
+                print(line.strip())  # Echo to console
+                
+                # Look for the URL in the output
+                if "trycloudflare.com" in line:
+                    match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+                    if match:
+                        tunnel_url = match.group(0)
+                        print(f"Found Cloudflare URL: {tunnel_url}")
+                        
+                        # Save to file for persistence
+                        try:
+                            with open(CLOUDFLARE_URL_FILE, 'w') as f:
+                                f.write(tunnel_url)
+                        except Exception as e:
+                            print(f"Error saving URL to file: {e}")
+        
+        # Start the monitor thread
+        monitor_thread = threading.Thread(target=monitor_output)
+        monitor_thread.daemon = True
+        monitor_thread.start()
+        
+        # Save PID for stopping later
+        with open(CLOUDFLARE_PID_FILE, 'w') as f:
+            f.write(str(tunnel_process.pid))
+        
+        # Save path to cloudflared
+        if not config.get('cloudflared_path') and cloudflared_path != 'cloudflared':
+            config['cloudflared_path'] = cloudflared_path
+            save_config(config)
+            
+        flash('Cloudflare tunnel started! The URL will appear on the dashboard in a few seconds.', 'success')
+        
+        # Redirect to dashboard
+        return redirect(url_for('dashboard'))
+        
     except Exception as e:
         flash(f'Failed to start Cloudflare tunnel: {str(e)}', 'danger')
+        return redirect(url_for('dashboard'))
+
+@app.route('/stop_cloudflare_tunnel', methods=['POST'])
+def stop_cloudflare_tunnel():
+    """Stop the running Cloudflare tunnel using a simpler approach"""
+    if os.path.exists(CLOUDFLARE_PID_FILE):
+        try:
+            # Read the PID
+            with open(CLOUDFLARE_PID_FILE, 'r') as f:
+                pid = int(f.read().strip())
+            
+            # Kill the process
+            if os.name == 'nt':  # Windows
+                os.system(f'taskkill /F /PID {pid}')
+            else:  # Unix/Linux
+                os.kill(pid, signal.SIGTERM)
+            
+            # Clean up files
+            os.remove(CLOUDFLARE_PID_FILE)
+            if os.path.exists(CLOUDFLARE_URL_FILE):
+                os.remove(CLOUDFLARE_URL_FILE)
+            
+            flash('Cloudflare tunnel stopped', 'warning')
+        except Exception as e:
+            flash(f'Error stopping Cloudflare tunnel: {str(e)}', 'danger')
+    else:
+        flash('No running Cloudflare tunnel found', 'info')
     
     return redirect(url_for('dashboard'))
+
+@app.route('/get_cloudflare_url')
+def get_cloudflare_url_api():
+    """API endpoint to get the current Cloudflare tunnel URL"""
+    return jsonify({
+        'url': get_cloudflare_url(),
+        'running': is_cloudflare_running()
+    })
 
 @app.route('/start_ngrok_tunnel', methods=['POST'])
 def start_ngrok_tunnel():

@@ -233,7 +233,7 @@
                             <i class="fas fa-exclamation-triangle text-warning" style="font-size: 2rem;"></i>
                             <h5 class="mt-2">No URLs Monitored</h5>
                             <p>Add URLs to monitor in the Defacement Monitor settings.</p>
-                            <a href="{{ url_for('defacement_settings') }}" class="btn btn-primary">
+<a href="{{ url_for('defacement_settings') }}" class="btn btn-primary">
                                 <i class="fas fa-cog"></i> Configure Monitoring
                             </a>
                         </div>
@@ -252,18 +252,41 @@
                 <div class="card-body">
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <div class="card h-100">
+                            <div class="card h-100" style="position: relative;">
+                                <!-- Add the Glitchy badge -->
+                                <div style="position: absolute; top: 10px; right: 10px; background-color: #ff6b6b; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; z-index: 10;">
+                                    Glitchy
+                                </div>
                                 <div class="card-body text-center">
                                     <div class="mb-3">
                                         <i class="fas fa-cloud text-primary" style="font-size: 3rem;"></i>
                                     </div>
                                     <h4>Cloudflare Tunnel</h4>
                                     <p>Create a secure tunnel to access WASSp from anywhere using Cloudflare.</p>
-                                    <form action="{{ url_for('start_cloudflare_tunnel') }}" method="post">
-                                        <button type="submit" class="btn btn-primary">
-                                            <i class="fas fa-play-circle"></i> Start Cloudflare Tunnel
-                                        </button>
-                                    </form>
+                                    
+                                    {% if cloudflare_url %}
+                                        <div class="alert alert-success mb-3">
+                                            <strong>Active Cloudflare URL:</strong><br>
+                                            <a href="{{ cloudflare_url }}" target="_blank">{{ cloudflare_url }}</a>
+                                        </div>
+                                        <div class="input-group mb-3">
+                                            <input type="text" id="cloudflare-url-input" class="form-control" value="{{ cloudflare_url }}" readonly>
+                                            <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard('cloudflare-url-input')">
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                        </div>
+                                        <form action="{{ url_for('stop_cloudflare_tunnel') }}" method="post">
+                                            <button type="submit" class="btn btn-danger">
+                                                <i class="fas fa-stop-circle"></i> Stop Tunnel
+                                            </button>
+                                        </form>
+                                    {% else %}
+                                        <form action="{{ url_for('start_cloudflare_tunnel') }}" method="post">
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="fas fa-play-circle"></i> Start Cloudflare Tunnel
+                                            </button>
+                                        </form>
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>
@@ -330,6 +353,21 @@
     {% endif %}
     
     {% set monitored_count = monitored_urls|length if monitored_urls else 0 %}
+    
+    // Function to copy text to clipboard
+    function copyToClipboard(elementId) {
+        const element = document.getElementById(elementId);
+        element.select();
+        document.execCommand('copy');
+        
+        // Optional: Show a brief "Copied!" message
+        const btn = element.nextElementSibling;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+        }, 1500);
+    }
     
     // Generate chart data
     document.addEventListener('DOMContentLoaded', function() {
@@ -452,6 +490,29 @@
                 });
             });
         }
+    });
+
+    // Check for Cloudflare tunnel starting status
+    document.addEventListener('DOMContentLoaded', function() {
+        // If Cloudflare tunnel is starting but we don't see the URL yet, poll for it
+        {% if cloudflare_running and not cloudflare_url %}
+            checkCloudflareStatus();
+            
+            function checkCloudflareStatus() {
+                fetch('{{ url_for("get_cloudflare_url_api") }}')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.url) {
+                            // Reload page when URL is found
+                            window.location.reload();
+                        } else {
+                            // Try again in 2 seconds
+                            setTimeout(checkCloudflareStatus, 2000);
+                        }
+                    })
+                    .catch(error => console.error('Error checking Cloudflare tunnel status:', error));
+            }
+        {% endif %}
     });
 
     // Test notification function
