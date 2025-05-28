@@ -119,6 +119,7 @@
                                         <th>Scan Type</th>
                                         <th>Timestamp</th>
                                         <th>URLs Scanned</th>
+                                        <th>Technologies</th>
                                         <th>Vulnerabilities</th>
                                         <th>Actions</th>
                                     </tr>
@@ -138,6 +139,18 @@
                                         <td>{{ scan_results.timestamp }}</td>
                                         <td>{{ scan_results.target_urls|length }}</td>
                                         <td>
+                                            {% set main_result = scan_results.results.get(scan_results.url, {}) %}
+                                            {% set tech_count = 0 %}
+                                            {% if main_result.technology_stack %}
+                                                {% for category, techs in main_result.technology_stack.items() %}
+                                                    {% if category != 'versions' %}
+                                                        {% set tech_count = tech_count + techs|length %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                            {% endif %}
+                                            <span class="badge bg-info">{{ tech_count }}</span>
+                                        </td>
+                                        <td>
                                             {% set vuln_count = namespace(total=0) %}
                                             {% if scan_results and scan_results.get('results') %}
                                                 {% for url, result in scan_results.results.items() %}
@@ -154,9 +167,19 @@
                                             {% endif %}
                                         </td>
                                         <td>
-                                            <a href="{{ url_for('scan_result') }}" class="btn btn-sm btn-primary">
-                                                <i class="fas fa-eye"></i> View
-                                            </a>
+                                            <div class="btn-group" role="group">
+                                                <a href="{{ url_for('scan_result') }}" class="btn btn-sm btn-primary">
+                                                    <i class="fas fa-eye"></i> View
+                                                </a>
+                                                <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <span class="visually-hidden">Toggle Dropdown</span>
+                                                </button>
+                                                <ul class="dropdown-menu">
+                                                    <li><a class="dropdown-item" href="{{ url_for('export_scan_results', format='pdf') }}"><i class="fas fa-file-pdf"></i> Export PDF</a></li>
+                                                    <li><a class="dropdown-item" href="{{ url_for('export_scan_results', format='json') }}"><i class="fas fa-file-alt"></i> Export JSON</a></li>
+                                                    <li><a class="dropdown-item" href="{{ url_for('export_scan_results', format='csv') }}"><i class="fas fa-file-csv"></i> Export CSV</a></li>
+                                                </ul>
+                                            </div>
                                         </td>
                                     </tr>
                                 </tbody>
@@ -233,7 +256,7 @@
                             <i class="fas fa-exclamation-triangle text-warning" style="font-size: 2rem;"></i>
                             <h5 class="mt-2">No URLs Monitored</h5>
                             <p>Add URLs to monitor in the Defacement Monitor settings.</p>
-<a href="{{ url_for('defacement_settings') }}" class="btn btn-primary">
+                            <a href="{{ url_for('defacement_settings') }}" class="btn btn-primary">
                                 <i class="fas fa-cog"></i> Configure Monitoring
                             </a>
                         </div>
@@ -325,10 +348,27 @@
 <script>
     // Pre-computed data for JavaScript security
     {% set vuln_count = namespace(total=0) %}
+    {% set cookie_issues = namespace(total=0) %}
+    {% set api_vulns = namespace(total=0) %}
+    {% set tech_count = namespace(total=0) %}
+    
     {% if scan_results and scan_results.get('results') %}
         {% for url, result in scan_results.get('results', {}).items() %}
             {% if result.vulnerabilities %}
                 {% set vuln_count.total = vuln_count.total + result.vulnerabilities|length %}
+            {% endif %}
+            {% if result.cookie_security and result.cookie_security.vulnerabilities %}
+                {% set cookie_issues.total = cookie_issues.total + result.cookie_security.vulnerabilities|length %}
+            {% endif %}
+            {% if result.api_endpoints and result.api_endpoints.vulnerabilities %}
+                {% set api_vulns.total = api_vulns.total + result.api_endpoints.vulnerabilities|length %}
+            {% endif %}
+            {% if result.technology_stack %}
+                {% for category, techs in result.technology_stack.items() %}
+                    {% if category != 'versions' %}
+                        {% set tech_count.total = tech_count.total + techs|length %}
+                    {% endif %}
+                {% endfor %}
             {% endif %}
         {% endfor %}
     {% endif %}
@@ -377,26 +417,32 @@
         const securityStatsChart = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['Vulnerabilities', 'Security Headers', 'SSL Issues', 'Monitored Sites'],
+                labels: ['Vulnerabilities', 'Security Headers', 'SSL Issues', 'Cookie Issues', 'API Issues', 'Technologies'],
                 datasets: [{
                     label: 'Security Statistics',
                     data: [
                         {{ vuln_count.total }},
                         {{ missing_headers_count }},
                         {{ ssl_issues }},
-                        {{ monitored_count }}
+                        {{ cookie_issues.total }},
+                        {{ api_vulns.total }},
+                        {{ tech_count.total }}
                     ],
                     backgroundColor: [
                         'rgba(255, 99, 132, 0.2)',
                         'rgba(255, 159, 64, 0.2)',
                         'rgba(255, 205, 86, 0.2)',
-                        'rgba(75, 192, 192, 0.2)'
+                        'rgba(75, 192, 192, 0.2)',
+                        'rgba(54, 162, 235, 0.2)',
+                        'rgba(153, 102, 255, 0.2)'
                     ],
                     borderColor: [
                         'rgb(255, 99, 132)',
                         'rgb(255, 159, 64)',
                         'rgb(255, 205, 86)',
-                        'rgb(75, 192, 192)'
+                        'rgb(75, 192, 192)',
+                        'rgb(54, 162, 235)',
+                        'rgb(153, 102, 255)'
                     ],
                     borderWidth: 1
                 }]

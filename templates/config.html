@@ -27,6 +27,11 @@
                                 </button>
                             </li>
                             <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="security-tab" data-bs-toggle="tab" data-bs-target="#security" type="button" role="tab">
+                                    <i class="fas fa-shield-alt"></i> Security Features
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="notifications-tab" data-bs-toggle="tab" data-bs-target="#notifications" type="button" role="tab">
                                     <i class="fas fa-bell"></i> Notifications
                                 </button>
@@ -81,6 +86,55 @@
                                     <label for="concurrency" class="form-label">Concurrency</label>
                                     <input type="number" class="form-control" id="concurrency" name="concurrency" value="{{ config.get('concurrency', 5) }}" min="1" max="20">
                                     <div class="form-text">Number of concurrent requests to make during scanning. Higher values may be faster but more aggressive.</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Security Features Settings -->
+                            <div class="tab-pane fade" id="security" role="tabpanel">
+                                <h4 class="border-bottom pb-2 mb-3">Security Feature Settings</h4>
+                                
+                                <h5 class="mt-4">Subdomain Enumeration</h5>
+                                <div class="mb-3">
+                                    <label for="subdomain_wordlist" class="form-label">Subdomain Wordlist Path</label>
+                                    <input type="text" class="form-control" id="subdomain_wordlist" name="subdomain_wordlist" value="{{ config.get('subdomain_wordlist', '') }}" placeholder="wordlists/subdomains.txt">
+                                    <div class="form-text">
+                                        Path to a custom subdomain wordlist file. Leave empty to use the default wordlist.
+                                        <br>Default location: <code>wordlists/subdomains.txt</code>
+                                    </div>
+                                </div>
+                                
+                                <h5 class="mt-4">API Security Testing</h5>
+                                <div class="mb-3">
+                                    <label for="api_wordlist" class="form-label">API Endpoint Wordlist Path</label>
+                                    <input type="text" class="form-control" id="api_wordlist" name="api_wordlist" value="{{ config.get('api_wordlist', '') }}" placeholder="wordlists/api_endpoints.txt">
+                                    <div class="form-text">
+                                        Path to a custom API endpoint wordlist file. Leave empty to use the default wordlist.
+                                        <br>Default location: <code>wordlists/api_endpoints.txt</code>
+                                    </div>
+                                </div>
+                                
+                                <h5 class="mt-4">Defacement Monitoring</h5>
+                                <div class="mb-3">
+                                    <label for="change_threshold" class="form-label">Change Detection Threshold (%)</label>
+                                    <input type="range" class="form-range" id="change_threshold" name="change_threshold" min="1" max="50" value="{{ (config.get('change_threshold', 0.05) * 100)|int }}">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Minor Changes (1%)</span>
+                                        <span id="thresholdValue">{{ (config.get('change_threshold', 0.05) * 100)|int }}%</span>
+                                        <span>Major Changes (50%)</span>
+                                    </div>
+                                    <div class="form-text">The minimum percentage of content change required to trigger an alert.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ignore_patterns" class="form-label">Ignore Patterns</label>
+                                    <select class="form-select" id="ignore_patterns" name="ignore_patterns" multiple size="5">
+                                        {% for pattern in ['date', 'time', 'counter', 'ads', 'comments'] %}
+                                            <option value="{{ pattern }}" {% if pattern in config.get('ignore_patterns', []) %}selected{% endif %}>
+                                                {{ pattern|title }} changes
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                    <div class="form-text">Select elements to ignore when detecting changes (hold Ctrl/Cmd to select multiple).</div>
                                 </div>
                             </div>
                             
@@ -251,6 +305,16 @@
         depthInput.addEventListener('input', function() {
             depthValue.textContent = this.value;
         });
+        
+        // Update threshold value display
+        const thresholdInput = document.getElementById('change_threshold');
+        const thresholdValue = document.getElementById('thresholdValue');
+        
+        if (thresholdInput && thresholdValue) {
+            thresholdInput.addEventListener('input', function() {
+                thresholdValue.textContent = this.value + '%';
+            });
+        }
         
         // Test notification
         const testBtn = document.getElementById('testNotificationBtn');

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file, has_request_context
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file, has_request_context, make_response
 from flask_apscheduler import APScheduler
 from flask_talisman import Talisman  # Add import for security headers
 import requests
@@ -33,6 +33,17 @@ from concurrent.futures import ThreadPoolExecutor
 import signal
 import sys
 import shutil
+import asyncio
+import aiohttp
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib import colors
+import csv
+from xml.etree.ElementTree import Element, SubElement, tostring
+import xml.dom.minidom
+import certifi
+from typing import List, Dict, Any, Optional
 
 app = Flask(__name__)
 app.secret_key = 'wasp_super_secret_key'
@@ -100,7 +111,9 @@ default_config = {
     'notify_on_scan_complete': False,  # Notify when scans complete
     'notify_on_vulnerabilities': True,  # Notify when vulnerabilities are found
     'enable_cloudflare': True,  # Enable Cloudflare tunnels
-    'enable_ngrok': True  # Enable Ngrok tunnels
+    'enable_ngrok': True,  # Enable Ngrok tunnels
+    'subdomain_wordlist': 'wordlists/subdomains.txt',  # Path to subdomain wordlist
+    'api_wordlist': 'wordlists/api_endpoints.txt',  # Path to API endpoint wordlist
 }
 
 # Initialize session cleanup
@@ -140,7 +153,894 @@ def save_config(config):
 # Initialize configuration
 config = load_config()
 
-# Scanner components
+# NEW: Subdomain Enumeration Component
+class SubdomainEnumerator:
+    """Advanced subdomain enumeration using multiple techniques"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.found_subdomains = set()
+        
+    async def enumerate_all(self, domain: str) -> List[str]:
+        """Enumerate subdomains using all available methods"""
+        tasks = [
+            self.dns_bruteforce(domain),
+            self.crtsh_enumeration(domain),
+            self.dns_zone_transfer(domain),
+        ]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Combine all results
+        for result in results:
+            if isinstance(result, list):
+                self.found_subdomains.update(result)
+        
+        return list(self.found_subdomains)
+    
+    async def dns_bruteforce(self, domain: str) -> List[str]:
+        """Bruteforce common subdomains"""
+        subdomains = []
+        common_subdomains = [
+            'www', 'mail', 'ftp', 'admin', 'blog', 'shop', 'api', 'cdn',
+            'dev', 'staging', 'test', 'portal', 'secure', 'vpn', 'remote',
+            'webmail', 'ns1', 'ns2', 'smtp', 'pop', 'imap', 'forum', 'news',
+            'download', 'uploads', 'static', 'media', 'assets', 'img', 'images',
+            'css', 'js', 'email', 'ww1', 'www2', 'www3', 'support', 'help',
+            'docs', 'document', 'files', 'backup', 'demo', 'beta', 'alpha',
+            'internal', 'private', 'public', 'cache', 'db', 'database', 'mysql',
+            'git', 'svn', 'jenkins', 'gitlab', 'jira', 'confluence', 'wiki'
+        ]
+        
+        # Load additional wordlist if configured
+        if self.config.get('subdomain_wordlist') and os.path.exists(self.config['subdomain_wordlist']):
+            try:
+                with open(self.config['subdomain_wordlist'], 'r') as f:
+                    common_subdomains.extend([line.strip() for line in f if line.strip()])
+            except:
+                pass
+        
+        for subdomain in common_subdomains:
+            full_domain = f"{subdomain}.{domain}"
+            try:
+                # Try to resolve the subdomain
+                answers = dns.resolver.resolve(full_domain, 'A')
+                if answers:
+                    subdomains.append(full_domain)
+                    print(f"[+] Found subdomain: {full_domain}")
+            except:
+                pass
+        
+        return subdomains
+    
+    async def crtsh_enumeration(self, domain: str) -> List[str]:
+        """Enumerate subdomains using certificate transparency logs"""
+        subdomains = []
+        try:
+            url = f"https://crt.sh/?q=%25.{domain}&output=json"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=30) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        for entry in data:
+                            name_value = entry.get('name_value', '')
+                            # Extract all domains from the certificate
+                            for line in name_value.split('\n'):
+                                if line and '*' not in line:  # Skip wildcards
+                                    subdomain = line.strip().lower()
+                                    if subdomain.endswith(domain) and subdomain != domain:
+                                        subdomains.append(subdomain)
+        except Exception as e:
+            print(f"Error in crt.sh enumeration: {e}")
+        
+        return list(set(subdomains))
+    
+    async def dns_zone_transfer(self, domain: str) -> List[str]:
+        """Attempt DNS zone transfer"""
+        subdomains = []
+        try:
+            # Get name servers
+            ns_records = dns.resolver.resolve(domain, 'NS')
+            
+            for ns in ns_records:
+                ns_str = str(ns).rstrip('.')
+                try:
+                    # Attempt zone transfer
+                    zone = dns.zone.from_xfr(dns.query.xfr(ns_str, domain))
+                    if zone:
+                        for name, node in zone.nodes.items():
+                            subdomain = str(name) + '.' + domain
+                            if subdomain != domain:
+                                subdomains.append(subdomain)
+                        print(f"[!] Zone transfer successful on {ns_str}")
+                except:
+                    pass
+        except:
+            pass
+        
+        return subdomains
+
+# NEW: Enhanced Technology Fingerprinting
+class TechnologyFingerprinter:
+    """Advanced technology detection beyond JavaScript frameworks"""
+    
+    def __init__(self):
+        self.technologies = {
+            'web_servers': {
+                'nginx': ['nginx', 'Nginx'],
+                'apache': ['Apache', 'apache'],
+                'iis': ['Microsoft-IIS', 'IIS'],
+                'litespeed': ['LiteSpeed'],
+                'tomcat': ['Apache-Coyote', 'Tomcat'],
+            },
+            'programming_languages': {
+                'php': ['X-Powered-By: PHP', '.php', 'PHPSESSID'],
+                'asp.net': ['ASP.NET', 'X-AspNet-Version', '.aspx'],
+                'java': ['JSESSIONID', 'java', '.jsp', '.do'],
+                'python': ['wsgiserver', 'gunicorn', 'werkzeug'],
+                'ruby': ['Phusion Passenger', 'mod_rails', 'mod_rack', 'Ruby'],
+                'node.js': ['Express', 'X-Powered-By: Express', 'node.js'],
+            },
+            'cms': {
+                'wordpress': ['/wp-content/', '/wp-includes/', 'wp-json', 'WordPress'],
+                'drupal': ['/sites/default/', 'Drupal', 'X-Drupal-Cache'],
+                'joomla': ['/components/', '/modules/', 'Joomla'],
+                'magento': ['/skin/frontend/', 'Magento', 'Mage'],
+                'shopify': ['Shopify', 'shopify.com'],
+                'wix': ['X-Wix-', 'wixsite.com'],
+                'squarespace': ['Squarespace'],
+            },
+            'frameworks': {
+                'laravel': ['laravel_session', 'Laravel'],
+                'django': ['csrftoken', 'django'],
+                'rails': ['_rails_session', 'Rails'],
+                'spring': ['Spring', 'springframework'],
+                'angular': ['ng-version', 'angular'],
+                'react': ['_react', 'react'],
+                'vue': ['vue', '__vue__'],
+            },
+            'analytics': {
+                'google_analytics': ['google-analytics.com', 'gtag', '_ga', 'UA-'],
+                'google_tag_manager': ['googletagmanager.com', 'GTM-'],
+                'matomo': ['matomo', 'piwik'],
+                'hotjar': ['hotjar.com', '_hjid'],
+                'mixpanel': ['mixpanel.com'],
+            },
+            'cdn': {
+                'cloudflare': ['CF-RAY', 'cloudflare'],
+                'akamai': ['Akamai', 'akamaihd.net'],
+                'fastly': ['Fastly', 'fastly.net'],
+                'cloudfront': ['CloudFront', 'cloudfront.net'],
+                'maxcdn': ['MaxCDN', 'maxcdn.com'],
+            },
+            'security': {
+                'waf': ['X-WAF-', 'WAF', 'Web Application Firewall'],
+                'sucuri': ['Sucuri', 'X-Sucuri-'],
+                'wordfence': ['Wordfence'],
+                'cloudflare_waf': ['cf-ray', 'CF-Cache-Status'],
+            }
+        }
+    
+    def fingerprint(self, url: str, headers: dict, content: str) -> Dict[str, List[str]]:
+        """Perform comprehensive technology fingerprinting"""
+        detected_tech = {category: [] for category in self.technologies.keys()}
+        
+        # Check headers
+        headers_str = str(headers).lower()
+        
+        # Check content
+        content_lower = content.lower()
+        
+        for category, technologies in self.technologies.items():
+            for tech_name, signatures in technologies.items():
+                for signature in signatures:
+                    if signature.lower() in headers_str or signature.lower() in content_lower:
+                        if tech_name not in detected_tech[category]:
+                            detected_tech[category].append(tech_name)
+                        break
+        
+        # Special checks for version detection
+        detected_tech['versions'] = self._detect_versions(headers, content)
+        
+        # Remove empty categories
+        return {k: v for k, v in detected_tech.items() if v}
+    
+    def _detect_versions(self, headers: dict, content: str) -> Dict[str, str]:
+        """Detect specific version information"""
+        versions = {}
+        
+        # Check headers for version info
+        for header, value in headers.items():
+            if 'version' in header.lower():
+                versions[header] = value
+            elif header.lower() == 'server':
+                # Extract version from server header
+                import re
+                version_match = re.search(r'(\d+\.[\d\.]+)', value)
+                if version_match:
+                    versions['server_version'] = version_match.group(1)
+        
+        # Check meta tags for versions
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(content, 'html.parser')
+        generator_tag = soup.find('meta', attrs={'name': 'generator'})
+        if generator_tag and generator_tag.get('content'):
+            versions['generator'] = generator_tag['content']
+        
+        return versions
+
+# NEW: API Security Testing Component
+class APISecurityTester:
+    """Test API endpoints for security vulnerabilities"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.common_api_paths = [
+            '/api', '/api/v1', '/api/v2', '/v1', '/v2', '/rest',
+            '/graphql', '/api/graphql', '/query',
+            '/swagger', '/swagger.json', '/api-docs', '/api/docs',
+            '/openapi.json', '/swagger-ui', '/redoc',
+            '/.well-known/openapi.json', '/api/swagger.json'
+        ]
+        
+        # Load additional API paths if configured
+        if config.get('api_wordlist') and os.path.exists(config['api_wordlist']):
+            try:
+                with open(config['api_wordlist'], 'r') as f:
+                    self.common_api_paths.extend([line.strip() for line in f if line.strip()])
+            except:
+                pass
+    
+    def test_api_security(self, base_url: str) -> Dict[str, Any]:
+        """Perform comprehensive API security testing"""
+        results = {
+            'endpoints_found': [],
+            'vulnerabilities': [],
+            'authentication': {},
+            'rate_limiting': {},
+            'documentation': {}
+        }
+        
+        # Discover API endpoints
+        endpoints = self._discover_endpoints(base_url)
+        results['endpoints_found'] = endpoints
+        
+        # Test each endpoint
+        for endpoint in endpoints:
+            # Test authentication
+            auth_results = self._test_authentication(endpoint)
+            results['authentication'][endpoint] = auth_results
+            
+            # Test rate limiting
+            rate_limit_results = self._test_rate_limiting(endpoint)
+            results['rate_limiting'][endpoint] = rate_limit_results
+            
+            # Test for common API vulnerabilities
+            vulns = self._test_api_vulnerabilities(endpoint)
+            results['vulnerabilities'].extend(vulns)
+        
+        # Check for API documentation
+        results['documentation'] = self._check_api_documentation(base_url)
+        
+        return results
+    
+    def _discover_endpoints(self, base_url: str) -> List[str]:
+        """Discover API endpoints"""
+        discovered = []
+        
+        for path in self.common_api_paths:
+            url = urljoin(base_url, path)
+            try:
+                response = requests.get(url, timeout=self.config['timeout'], allow_redirects=False)
+                if response.status_code in [200, 401, 403]:
+                    discovered.append(url)
+                    
+                    # If we found swagger/openapi, parse it
+                    if 'swagger' in path or 'openapi' in path:
+                        self._parse_api_documentation(response.text, base_url, discovered)
+            except:
+                pass
+        
+        return discovered
+    
+    def _parse_api_documentation(self, content: str, base_url: str, discovered: List[str]):
+        """Parse Swagger/OpenAPI documentation for endpoints"""
+        try:
+            api_spec = json.loads(content)
+            
+            # Parse paths from OpenAPI/Swagger spec
+            if 'paths' in api_spec:
+                for path in api_spec['paths']:
+                    full_url = urljoin(base_url, path)
+                    if full_url not in discovered:
+                        discovered.append(full_url)
+        except:
+            pass
+    
+    def _test_authentication(self, endpoint: str) -> Dict[str, Any]:
+        """Test API authentication mechanisms"""
+        results = {
+            'requires_auth': False,
+            'auth_methods': [],
+            'vulnerabilities': []
+        }
+        
+        # Test without authentication
+        try:
+            response = requests.get(endpoint, timeout=self.config['timeout'])
+            if response.status_code == 401:
+                results['requires_auth'] = True
+            elif response.status_code == 200:
+                results['vulnerabilities'].append({
+                    'type': 'Missing Authentication',
+                    'severity': 'High',
+                    'description': f'API endpoint {endpoint} is accessible without authentication'
+                })
+        except:
+            pass
+        
+        # Test common authentication bypass techniques
+        bypass_headers = [
+            {'X-Forwarded-For': '127.0.0.1'},
+            {'X-Originating-IP': '127.0.0.1'},
+            {'X-Remote-IP': '127.0.0.1'},
+            {'X-Client-IP': '127.0.0.1'},
+            {'X-Real-IP': '127.0.0.1'},
+            {'X-Forwarded-Host': 'localhost'},
+        ]
+        
+        for headers in bypass_headers:
+            try:
+                response = requests.get(endpoint, headers=headers, timeout=self.config['timeout'])
+                if response.status_code == 200 and results['requires_auth']:
+                    results['vulnerabilities'].append({
+                        'type': 'Authentication Bypass',
+                        'severity': 'Critical',
+                        'description': f'Authentication bypass possible using headers: {headers}'
+                    })
+                    break
+            except:
+                pass
+        
+        return results
+    
+    def _test_rate_limiting(self, endpoint: str) -> Dict[str, Any]:
+        """Test for rate limiting"""
+        results = {
+            'has_rate_limiting': False,
+            'requests_before_limit': 0,
+            'limit_response_code': None
+        }
+        
+        # Send rapid requests to test rate limiting
+        for i in range(100):
+            try:
+                response = requests.get(endpoint, timeout=5)
+                if response.status_code == 429:
+                    results['has_rate_limiting'] = True
+                    results['requests_before_limit'] = i
+                    results['limit_response_code'] = 429
+                    break
+                elif response.status_code >= 500:
+                    # Server error, stop testing
+                    break
+            except:
+                break
+        
+        if not results['has_rate_limiting']:
+            results['vulnerability'] = {
+                'type': 'Missing Rate Limiting',
+                'severity': 'Medium',
+                'description': f'No rate limiting detected on {endpoint} after 100 requests'
+            }
+        
+        return results
+    
+    def _test_api_vulnerabilities(self, endpoint: str) -> List[Dict[str, Any]]:
+        """Test for common API vulnerabilities"""
+        vulnerabilities = []
+        
+        # Test for API versioning issues
+        if '/v1' in endpoint or '/v2' in endpoint:
+            # Try older versions
+            older_version = endpoint.replace('/v2', '/v1').replace('/v1', '/v0')
+            try:
+                response = requests.get(older_version, timeout=self.config['timeout'])
+                if response.status_code == 200:
+                    vulnerabilities.append({
+                        'type': 'Deprecated API Version',
+                        'severity': 'Medium',
+                        'description': f'Older API version accessible at {older_version}'
+                    })
+            except:
+                pass
+        
+        # Test for GraphQL introspection
+        if 'graphql' in endpoint:
+            introspection_query = {
+                'query': '{ __schema { types { name } } }'
+            }
+            try:
+                response = requests.post(endpoint, json=introspection_query, timeout=self.config['timeout'])
+                if response.status_code == 200 and '__schema' in response.text:
+                    vulnerabilities.append({
+                        'type': 'GraphQL Introspection Enabled',
+                        'severity': 'Medium',
+                        'description': 'GraphQL introspection is enabled, exposing the API schema'
+                    })
+            except:
+                pass
+        
+        # Test for XXE in XML endpoints
+        if endpoint.endswith('.xml') or 'xml' in endpoint:
+            xxe_payload = '''<?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <root>&xxe;</root>'''
+            
+            try:
+                response = requests.post(
+                    endpoint, 
+                    data=xxe_payload, 
+                    headers={'Content-Type': 'application/xml'},
+                    timeout=self.config['timeout']
+                )
+                if 'root:' in response.text:
+                    vulnerabilities.append({
+                        'type': 'XXE Vulnerability',
+                        'severity': 'Critical',
+                        'description': 'XML External Entity (XXE) vulnerability detected'
+                    })
+            except:
+                pass
+        
+        return vulnerabilities
+    
+    def _check_api_documentation(self, base_url: str) -> Dict[str, Any]:
+        """Check for exposed API documentation"""
+        documentation = {
+            'found': False,
+            'urls': [],
+            'type': None
+        }
+        
+        doc_paths = [
+            '/swagger', '/swagger-ui', '/swagger.json',
+            '/api-docs', '/api/docs', '/docs',
+            '/openapi.json', '/.well-known/openapi.json',
+            '/redoc', '/graphql/playground', '/graphiql'
+        ]
+        
+        for path in doc_paths:
+            url = urljoin(base_url, path)
+            try:
+                response = requests.get(url, timeout=self.config['timeout'], allow_redirects=True)
+                if response.status_code == 200:
+                    documentation['found'] = True
+                    documentation['urls'].append(url)
+                    
+                    if 'swagger' in path:
+                        documentation['type'] = 'Swagger'
+                    elif 'openapi' in path:
+                        documentation['type'] = 'OpenAPI'
+                    elif 'graphql' in path or 'graphiql' in path:
+                        documentation['type'] = 'GraphQL'
+            except:
+                pass
+        
+        return documentation
+
+# NEW: Cookie Security Analyzer
+class CookieSecurityAnalyzer:
+    """Analyze cookies for security issues"""
+    
+    def analyze_cookies(self, url: str) -> Dict[str, Any]:
+        """Analyze all cookies from a URL for security issues"""
+        results = {
+            'cookies': [],
+            'vulnerabilities': [],
+            'security_score': 100
+        }
+        
+        try:
+            # Use a session to collect cookies
+            session = requests.Session()
+            response = session.get(url, timeout=30)
+            
+            # Analyze each cookie
+            for cookie in session.cookies:
+                cookie_analysis = self._analyze_single_cookie(cookie, url)
+                results['cookies'].append(cookie_analysis)
+                
+                # Deduct points for each security issue
+                if not cookie_analysis['secure'] and 'https' in url:
+                    results['security_score'] -= 20
+                if not cookie_analysis['httponly'] and cookie_analysis['name'].lower() in ['sessionid', 'session', 'token']:
+                    results['security_score'] -= 25
+                if cookie_analysis['samesite'] == 'none' or not cookie_analysis['samesite']:
+                    results['security_score'] -= 15
+                
+                # Add vulnerabilities
+                results['vulnerabilities'].extend(cookie_analysis['vulnerabilities'])
+            
+            # Test for session fixation
+            fixation_result = self._test_session_fixation(url, session)
+            if fixation_result:
+                results['vulnerabilities'].append(fixation_result)
+                results['security_score'] -= 30
+        
+        except Exception as e:
+            results['error'] = str(e)
+        
+        results['security_score'] = max(0, results['security_score'])
+        return results
+    
+    def _analyze_single_cookie(self, cookie, url: str) -> Dict[str, Any]:
+        """Analyze a single cookie for security attributes"""
+        analysis = {
+            'name': cookie.name,
+            'value': cookie.value[:20] + '...' if len(cookie.value) > 20 else cookie.value,
+            'domain': cookie.domain,
+            'path': cookie.path,
+            'secure': cookie.secure,
+            'httponly': cookie.has_nonstandard_attr('HttpOnly') or cookie.has_nonstandard_attr('httponly'),
+            'samesite': cookie.get_nonstandard_attr('SameSite'),
+            'expires': cookie.expires,
+            'vulnerabilities': []
+        }
+        
+        # Check for security issues
+        if 'https' in url and not cookie.secure:
+            analysis['vulnerabilities'].append({
+                'type': 'Missing Secure Flag',
+                'severity': 'High',
+                'description': f'Cookie "{cookie.name}" is missing the Secure flag on HTTPS site',
+                'cookie': cookie.name
+            })
+        
+        if cookie.name.lower() in ['sessionid', 'session', 'token', 'auth'] and not analysis['httponly']:
+            analysis['vulnerabilities'].append({
+                'type': 'Missing HttpOnly Flag',
+                'severity': 'High',
+                'description': f'Session cookie "{cookie.name}" is missing HttpOnly flag, vulnerable to XSS',
+                'cookie': cookie.name
+            })
+        
+        if not analysis['samesite']:
+            analysis['vulnerabilities'].append({
+                'type': 'Missing SameSite Attribute',
+                'severity': 'Medium',
+                'description': f'Cookie "{cookie.name}" is missing SameSite attribute, potentially vulnerable to CSRF',
+                'cookie': cookie.name
+            })
+        elif analysis['samesite'].lower() == 'none' and not cookie.secure:
+            analysis['vulnerabilities'].append({
+                'type': 'Insecure SameSite=None',
+                'severity': 'High',
+                'description': f'Cookie "{cookie.name}" has SameSite=None without Secure flag',
+                'cookie': cookie.name
+            })
+        
+        # Check for overly permissive domain
+        if cookie.domain and cookie.domain.startswith('.'):
+            analysis['vulnerabilities'].append({
+                'type': 'Overly Permissive Domain',
+                'severity': 'Low',
+                'description': f'Cookie "{cookie.name}" is set for entire domain {cookie.domain}',
+                'cookie': cookie.name
+            })
+        
+        return analysis
+    
+    def _test_session_fixation(self, url: str, session: requests.Session) -> Optional[Dict[str, Any]]:
+        """Test for session fixation vulnerability"""
+        # Get initial session cookie
+        initial_cookies = {c.name: c.value for c in session.cookies}
+        
+        # Try to set a known session ID
+        test_session_id = 'wassp_test_session_12345'
+        
+        for cookie_name in ['PHPSESSID', 'JSESSIONID', 'ASP.NET_SessionId', 'sessionid', 'session']:
+            if cookie_name in initial_cookies:
+                # Try to override the session
+                session.cookies.set(cookie_name, test_session_id)
+                
+                # Make another request
+                response = session.get(url)
+                
+                # Check if our session ID was accepted
+                if session.cookies.get(cookie_name) == test_session_id:
+                    return {
+                        'type': 'Session Fixation',
+                        'severity': 'High',
+                        'description': f'Application accepts externally set session IDs for cookie "{cookie_name}"',
+                        'cookie': cookie_name
+                    }
+        
+        return None
+
+# NEW: Comprehensive Report Exporter
+class ReportExporter:
+    """Export scan results in multiple formats"""
+    
+    def __init__(self):
+        self.styles = getSampleStyleSheet()
+    
+    def export_pdf(self, scan_results: Dict[str, Any], filename: str) -> str:
+        """Export scan results as PDF"""
+        doc = SimpleDocTemplate(filename, pagesize=letter)
+        story = []
+        
+        # Title
+        title_style = self.styles['Title']
+        story.append(Paragraph("WASSp Security Scan Report", title_style))
+        story.append(Spacer(1, 12))
+        
+        # Executive Summary
+        story.append(Paragraph("Executive Summary", self.styles['Heading1']))
+        
+        # Count vulnerabilities
+        vuln_count = 0
+        for url, result in scan_results.get('results', {}).items():
+            if 'vulnerabilities' in result:
+                vuln_count += len(result['vulnerabilities'])
+        
+        summary_text = f"""
+        Target URL: {scan_results.get('url', 'N/A')}<br/>
+        Scan Date: {scan_results.get('timestamp', 'N/A')}<br/>
+        Scan Type: {scan_results.get('scan_type', 'N/A')}<br/>
+        URLs Scanned: {len(scan_results.get('target_urls', []))}<br/>
+        Vulnerabilities Found: {vuln_count}<br/>
+        """
+        story.append(Paragraph(summary_text, self.styles['Normal']))
+        story.append(Spacer(1, 12))
+        
+        # Vulnerability Summary
+        if vuln_count > 0:
+            story.append(Paragraph("Vulnerabilities Found", self.styles['Heading1']))
+            
+            # Create vulnerability table
+            vuln_data = [['URL', 'Type', 'Severity', 'Description']]
+            for url, result in scan_results.get('results', {}).items():
+                if 'vulnerabilities' in result:
+                    for vuln in result['vulnerabilities']:
+                        vuln_data.append([
+                            url[:50] + '...' if len(url) > 50 else url,
+                            vuln.get('type', 'N/A'),
+                            vuln.get('severity', 'N/A'),
+                            vuln.get('description', 'N/A')[:100] + '...'
+                        ])
+            
+            vuln_table = Table(vuln_data)
+            vuln_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 14),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            story.append(vuln_table)
+            story.append(PageBreak())
+        
+        # Detailed Results
+        story.append(Paragraph("Detailed Scan Results", self.styles['Heading1']))
+        
+        for url, result in scan_results.get('results', {}).items():
+            story.append(Paragraph(f"Results for: {url}", self.styles['Heading2']))
+            
+            # Add various result sections
+            if 'dns_records' in result:
+                story.append(Paragraph("DNS Records", self.styles['Heading3']))
+                dns_text = "<br/>".join([f"{k}: {v}" for k, v in result['dns_records'].items() if v])
+                story.append(Paragraph(dns_text, self.styles['Normal']))
+                story.append(Spacer(1, 6))
+            
+            if 'ssl_info' in result and not result['ssl_info'].get('error'):
+                story.append(Paragraph("SSL Certificate Information", self.styles['Heading3']))
+                ssl_text = f"""
+                Issuer: {result['ssl_info'].get('issuer', {}).get('CN', 'N/A')}<br/>
+                Valid Until: {result['ssl_info'].get('not_after', 'N/A')}<br/>
+                Expired: {'Yes' if result['ssl_info'].get('has_expired') else 'No'}<br/>
+                """
+                story.append(Paragraph(ssl_text, self.styles['Normal']))
+                story.append(Spacer(1, 6))
+            
+            story.append(PageBreak())
+        
+        # Build PDF
+        doc.build(story)
+        return filename
+    
+    def export_json(self, scan_results: Dict[str, Any], filename: str) -> str:
+        """Export scan results as JSON"""
+        with open(filename, 'w') as f:
+            json.dump(scan_results, f, indent=2, default=str)
+        return filename
+    
+    def export_csv(self, scan_results: Dict[str, Any], filename: str) -> str:
+        """Export vulnerabilities as CSV"""
+        with open(filename, 'w', newline='') as csvfile:
+            fieldnames = ['URL', 'Vulnerability Type', 'Severity', 'Description', 'Remediation']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            
+            writer.writeheader()
+            for url, result in scan_results.get('results', {}).items():
+                if 'vulnerabilities' in result:
+                    for vuln in result['vulnerabilities']:
+                        writer.writerow({
+                            'URL': url,
+                            'Vulnerability Type': vuln.get('type', 'N/A'),
+                            'Severity': vuln.get('severity', 'N/A'),
+                            'Description': vuln.get('description', 'N/A'),
+                            'Remediation': vuln.get('remediation', 'N/A')
+                        })
+        
+        return filename
+    
+    def export_html(self, scan_results: Dict[str, Any], filename: str) -> str:
+        """Export scan results as standalone HTML"""
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>WASSp Security Scan Report</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                h1 { color: #2e7d32; }
+                h2 { color: #4caf50; }
+                .vulnerability { 
+                    border: 1px solid #ddd; 
+                    padding: 10px; 
+                    margin: 10px 0;
+                    border-radius: 5px;
+                }
+                .high { background-color: #ffebee; }
+                .medium { background-color: #fff3e0; }
+                .low { background-color: #f3e5f5; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #4caf50; color: white; }
+            </style>
+        </head>
+        <body>
+            <h1>WASSp Security Scan Report</h1>
+            <div class="summary">
+                <h2>Executive Summary</h2>
+                <p><strong>Target URL:</strong> {url}</p>
+                <p><strong>Scan Date:</strong> {timestamp}</p>
+                <p><strong>URLs Scanned:</strong> {urls_scanned}</p>
+                <p><strong>Vulnerabilities Found:</strong> {vuln_count}</p>
+            </div>
+            
+            <h2>Vulnerabilities</h2>
+            {vulnerabilities_html}
+            
+            <h2>Technology Stack</h2>
+            {tech_stack_html}
+        </body>
+        </html>
+        """
+        
+        # Count vulnerabilities
+        vuln_count = 0
+        vulnerabilities_html = ""
+        
+        for url, result in scan_results.get('results', {}).items():
+            if 'vulnerabilities' in result:
+                for vuln in result['vulnerabilities']:
+                    vuln_count += 1
+                    severity_class = vuln.get('severity', 'low').lower()
+                    vulnerabilities_html += f"""
+                    <div class="vulnerability {severity_class}">
+                        <h3>{vuln.get('type', 'Unknown')}</h3>
+                        <p><strong>URL:</strong> {url}</p>
+                        <p><strong>Severity:</strong> {vuln.get('severity', 'Unknown')}</p>
+                        <p><strong>Description:</strong> {vuln.get('description', 'No description')}</p>
+                    </div>
+                    """
+        
+        if vuln_count == 0:
+            vulnerabilities_html = "<p>No vulnerabilities found!</p>"
+        
+        # Technology stack
+        tech_stack_html = "<table><tr><th>Category</th><th>Technologies</th></tr>"
+        main_result = scan_results.get('results', {}).get(scan_results.get('url', ''), {})
+        if 'technology_stack' in main_result:
+            for category, techs in main_result['technology_stack'].items():
+                if techs:
+                    tech_stack_html += f"<tr><td>{category}</td><td>{', '.join(techs)}</td></tr>"
+        tech_stack_html += "</table>"
+        
+        # Fill in the template
+        html_content = html_template.format(
+            url=scan_results.get('url', 'N/A'),
+            timestamp=scan_results.get('timestamp', 'N/A'),
+            urls_scanned=len(scan_results.get('target_urls', [])),
+            vuln_count=vuln_count,
+            vulnerabilities_html=vulnerabilities_html,
+            tech_stack_html=tech_stack_html
+        )
+        
+        with open(filename, 'w') as f:
+            f.write(html_content)
+        
+        return filename
+    
+    def export_sarif(self, scan_results: Dict[str, Any], filename: str) -> str:
+        """Export scan results in SARIF format for CI/CD integration"""
+        sarif = {
+            "version": "2.1.0",
+            "$schema": "https://json.schemastore.org/sarif-2.1.0-rtm.5.json",
+            "runs": [{
+                "tool": {
+                    "driver": {
+                        "name": "WASSp",
+                        "version": "1.0",
+                        "informationUri": "https://github.com/yourusername/wassp",
+                        "rules": []
+                    }
+                },
+                "results": []
+            }]
+        }
+        
+        # Add vulnerabilities as results
+        rule_index = 0
+        for url, result in scan_results.get('results', {}).items():
+            if 'vulnerabilities' in result:
+                for vuln in result['vulnerabilities']:
+                    # Add rule if not exists
+                    rule_id = vuln.get('type', 'UNKNOWN').replace(' ', '_').upper()
+                    
+                    sarif['runs'][0]['tool']['driver']['rules'].append({
+                        "id": rule_id,
+                        "name": vuln.get('type', 'Unknown Vulnerability'),
+                        "shortDescription": {
+                            "text": vuln.get('description', '')[:100]
+                        },
+                        "fullDescription": {
+                            "text": vuln.get('description', '')
+                        },
+                        "defaultConfiguration": {
+                            "level": self._sarif_level(vuln.get('severity', 'medium'))
+                        }
+                    })
+                    
+                    # Add result
+                    sarif['runs'][0]['results'].append({
+                        "ruleId": rule_id,
+                        "level": self._sarif_level(vuln.get('severity', 'medium')),
+                        "message": {
+                            "text": vuln.get('description', 'Vulnerability detected')
+                        },
+                        "locations": [{
+                            "physicalLocation": {
+                                "artifactLocation": {
+                                    "uri": url
+                                }
+                            }
+                        }]
+                    })
+        
+        with open(filename, 'w') as f:
+            json.dump(sarif, f, indent=2)
+        
+        return filename
+    
+    def _sarif_level(self, severity: str) -> str:
+        """Convert severity to SARIF level"""
+        mapping = {
+            'critical': 'error',
+            'high': 'error',
+            'medium': 'warning',
+            'low': 'note',
+            'info': 'note'
+        }
+        return mapping.get(severity.lower(), 'warning')
+
+# Enhanced Scanner with all new components
 class URLScanner:
     def __init__(self, config):
         self.config = config
@@ -149,6 +1049,12 @@ class URLScanner:
         self.url_queue = queue.Queue()
         self.current_depth = 0
         self.stop_event = threading.Event()
+        
+        # Initialize new components
+        self.subdomain_enumerator = SubdomainEnumerator(config)
+        self.tech_fingerprinter = TechnologyFingerprinter()
+        self.api_tester = APISecurityTester(config)
+        self.cookie_analyzer = CookieSecurityAnalyzer()
     
     def scan_url(self, url):
         """Scan a single URL and gather information about it"""
@@ -163,8 +1069,32 @@ class URLScanner:
                 'headers': self.get_headers(url),
                 'content_info': self.get_content_info(url),
                 'ip_quality_check': self.check_ip_quality(url),
-                'vulnerabilities': self.check_vulnerabilities(url)
+                'vulnerabilities': self.check_vulnerabilities(url),
+                # NEW: Enhanced features
+                'technology_stack': {},
+                'cookie_security': {},
+                'api_endpoints': {}
             }
+            
+            # NEW: Technology fingerprinting
+            if result['headers'] and result['content_info']:
+                content = self._get_page_content(url)
+                if content:
+                    result['technology_stack'] = self.tech_fingerprinter.fingerprint(
+                        url, result['headers'], content
+                    )
+            
+            # NEW: Cookie security analysis
+            result['cookie_security'] = self.cookie_analyzer.analyze_cookies(url)
+            
+            # NEW: API security testing (only if it looks like an API)
+            if self._is_api_endpoint(url):
+                result['api_endpoints'] = self.api_tester.test_api_security(url)
+            
+            # Add cookie vulnerabilities to main vulnerabilities list
+            if result['cookie_security'].get('vulnerabilities'):
+                result['vulnerabilities'].extend(result['cookie_security']['vulnerabilities'])
+            
             return result
         except Exception as e:
             return {
@@ -173,6 +1103,23 @@ class URLScanner:
                 'status': 'error',
                 'error_message': str(e)
             }
+    
+    def _get_page_content(self, url):
+        """Get the full HTML content of a page"""
+        try:
+            response = requests.get(url, timeout=self.config['timeout'])
+            return response.text
+        except:
+            return ""
+    
+    def _is_api_endpoint(self, url):
+        """Check if URL appears to be an API endpoint"""
+        api_indicators = ['/api', '/v1', '/v2', '/rest', '/graphql', '.json', '.xml']
+        return any(indicator in url.lower() for indicator in api_indicators)
+    
+    async def enumerate_subdomains(self, domain):
+        """Enumerate subdomains for a domain"""
+        return await self.subdomain_enumerator.enumerate_all(domain)
     
     def get_domain_from_url(self, url):
         """Extract domain from URL"""
@@ -650,6 +1597,9 @@ class URLScanner:
         """Stop the current scan"""
         self.stop_event.set()
 
+# Keep all existing classes (DefacementMonitor, AIAnalyzer, etc.) as they are
+# They remain unchanged from the original code
+
 # Defacement Monitor integration
 class DefacementMonitor:
     def __init__(self, config):
@@ -910,6 +1860,7 @@ class AIAnalyzer:
 url_scanner = URLScanner(config)
 defacement_monitor = DefacementMonitor(config)
 ai_analyzer = AIAnalyzer(config)
+report_exporter = ReportExporter()
 
 def check_scan_completion():
     """Check if a scan has completed and update session if needed"""
@@ -985,30 +1936,35 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
         # Update progress: 10%
         update_progress(10, 'Configuration updated')
         
+        # NEW: Check if subdomain enumeration is needed
+        domain = url_scanner.get_domain_from_url(url)
+        if scan_type in ['full', 'advanced'] and domain:
+            update_progress(12, 'Enumerating subdomains...')
+            try:
+                # Run subdomain enumeration
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                subdomains = loop.run_until_complete(url_scanner.enumerate_subdomains(domain))
+                loop.close()
+                
+                if subdomains:
+                    update_progress(15, f'Found {len(subdomains)} subdomains')
+                    # Add subdomains to target URLs for advanced scan
+                    if scan_type == 'advanced':
+                        # Note: You might want to limit this or make it configurable
+                        pass  # For now, we'll just scan the main domain
+            except Exception as e:
+                print(f"Error enumerating subdomains: {e}")
+        
         # Crawl the site if needed
         target_urls = [url]
         if scan_type == 'full' or scan_type == 'advanced':
-            # Progress from 10% to 15% before crawling
-            update_progress(12, 'Initializing crawler...')
-            time.sleep(0.2)
+            # Progress from 15% to 30% during crawling
             update_progress(15, 'Crawling website...')
             
             # Perform crawl
             try:
-                # For deeper crawls, update progress during crawling
-                if crawl_depth > 1:
-                    # Create a wrapper function to track progress during crawl
-                    original_crawl = url_scanner.crawl_site
-                    
-                    def crawl_with_progress(start_url, max_depth, max_urls):
-                        # Start crawling
-                        urls = original_crawl(start_url, max_depth, max_urls)
-                        # Return the results
-                        return urls
-                        
-                    target_urls = crawl_with_progress(url, max_depth=crawl_depth, max_urls=config.get('max_urls_per_scan', 100))
-                else:
-                    target_urls = url_scanner.crawl_site(url, max_depth=crawl_depth, max_urls=config.get('max_urls_per_scan', 100))
+                target_urls = url_scanner.crawl_site(url, max_depth=crawl_depth, max_urls=config.get('max_urls_per_scan', 100))
                 
                 # Progressive updates from 15% to 30% during crawling
                 for i in range(16, 30, 3):
@@ -1023,8 +1979,6 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
         update_progress(30, f'Found {len(target_urls)} URLs to scan')
         
         # Break down the scanning progress (30% to 95%) into stages
-        # Allocate progress based on the number of components being checked
-        # DNS (5%) + SSL (5%) + Headers (5%) + Content (10%) + Vulnerabilities (40%)
         scan_components = {
             'preparation': {'start': 30, 'end': 35, 'message': 'Preparing scan tools...'},
             'dns': {'start': 35, 'end': 40, 'message': 'Checking DNS records...'},
@@ -1042,56 +1996,24 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
         update_progress(scan_components['preparation']['start'], scan_components['preparation']['message'])
         time.sleep(0.2)  # Small delay to show progress
         
-        # If only one URL, we'll break down the progress into stages for each component
-        if len(target_urls) == 1:
-            # Process the single URL with detailed progress for each component
-            target_url = target_urls[0]
-            
-            # DNS check stage
-            update_progress(scan_components['dns']['start'], scan_components['dns']['message'])
-            # Simulate progress increments during DNS checks
-            for i in range(scan_components['dns']['start'] + 1, scan_components['dns']['end']):
-                update_progress(i, f"Checking DNS records for {target_url}...")
-                time.sleep(0.1)
-            
-            # SSL check stage
-            update_progress(scan_components['ssl']['start'], scan_components['ssl']['message'])
-            # Simulate progress increments during SSL checks
-            for i in range(scan_components['ssl']['start'] + 1, scan_components['ssl']['end']):
-                update_progress(i, f"Verifying SSL certificate for {target_url}...")
-                time.sleep(0.1)
-            
-            # Headers check stage
-            update_progress(scan_components['headers']['start'], scan_components['headers']['message'])
-            # Simulate progress increments during header checks
-            for i in range(scan_components['headers']['start'] + 1, scan_components['headers']['end']):
-                update_progress(i, f"Analyzing HTTP headers for {target_url}...")
-                time.sleep(0.1)
-            
-            # Content check stage
-            update_progress(scan_components['content']['start'], scan_components['content']['message'])
-            # Simulate progress increments during content analysis
-            for i in range(scan_components['content']['start'] + 1, scan_components['content']['end']):
-                update_progress(i, f"Examining page content for {target_url}...")
-                time.sleep(0.1)
-            
-            # Vulnerability check stage
-            update_progress(scan_components['vulnerabilities']['start'], scan_components['vulnerabilities']['message'])
-            
-            # Perform the actual scan
+        # Process URLs
+        progress_per_url = (95 - 35) / max(1, len(target_urls))
+        
+        for i, target_url in enumerate(target_urls):
             try:
+                # Update progress for current URL
+                current_progress = min(95, 35 + int((i) * progress_per_url))
+                update_progress(current_progress, f'Scanning URL {i+1}/{len(target_urls)}: {target_url}', i)
+                
+                # Perform the scan with all new features
                 result = url_scanner.scan_url(target_url)
                 all_results[target_url] = result
-                
-                # Update progress during vulnerability scanning
-                vuln_increment = (scan_components['vulnerabilities']['end'] - scan_components['vulnerabilities']['start']) / 5
-                for i in range(1, 6):
-                    current_progress = min(95, scan_components['vulnerabilities']['start'] + int(i * vuln_increment))
-                    update_progress(current_progress, f"Testing for vulnerabilities ({i*20}%)...")
-                    time.sleep(0.2)
-                
                 if 'vulnerabilities' in result and result['vulnerabilities']:
                     all_vulnerabilities[target_url] = result['vulnerabilities']
+                
+                # Update progress after completing this URL
+                current_progress = min(95, 35 + int((i+1) * progress_per_url))
+                update_progress(current_progress, f'Completed URL {i+1}/{len(target_urls)}', i+1)
             except Exception as scan_error:
                 print(f"Error scanning {target_url}: {scan_error}")
                 all_results[target_url] = {
@@ -1100,34 +2022,6 @@ def run_scan(url, scan_type, crawl_depth, concurrency, timeout):
                     'status': 'error',
                     'error_message': str(scan_error)
                 }
-        else:
-            # Multiple URLs: divide progress based on URL count
-            progress_per_url = (95 - 35) / max(1, len(target_urls))
-            
-            # Scan each URL
-            for i, target_url in enumerate(target_urls):
-                try:
-                    # Update progress for current URL
-                    current_progress = min(95, 35 + int((i) * progress_per_url))
-                    update_progress(current_progress, f'Scanning URL {i+1}/{len(target_urls)}: {target_url}', i)
-                    
-                    # Perform the scan
-                    result = url_scanner.scan_url(target_url)
-                    all_results[target_url] = result
-                    if 'vulnerabilities' in result and result['vulnerabilities']:
-                        all_vulnerabilities[target_url] = result['vulnerabilities']
-                    
-                    # Update progress after completing this URL
-                    current_progress = min(95, 35 + int((i+1) * progress_per_url))
-                    update_progress(current_progress, f'Completed URL {i+1}/{len(target_urls)}', i+1)
-                except Exception as scan_error:
-                    print(f"Error scanning {target_url}: {scan_error}")
-                    all_results[target_url] = {
-                        'url': target_url,
-                        'timestamp': datetime.datetime.now().isoformat(),
-                        'status': 'error',
-                        'error_message': str(scan_error)
-                    }
         
         # Store the results
         scan_results = {
@@ -1374,6 +2268,70 @@ def stop_scan():
     flash('Scan stopped', 'warning')
     return redirect(url_for('index'))
 
+# NEW: Export endpoints
+@app.route('/scan/export/<format>')
+def export_scan_results(format):
+    """Export scan results in various formats"""
+    # Try to get scan_id from the report_path in session
+    scan_id = None
+    report_path = session.get('report_path')
+    if report_path:
+        # Extract scan_id from report_path (e.g., "reports/scan_UUID.json")
+        filename = os.path.basename(report_path)
+        if filename.startswith('scan_') and filename.endswith('.json'):
+            scan_id = filename[5:-5]  # Remove "scan_" prefix and ".json" suffix
+    
+    if not scan_id:
+        flash('No scan results to export', 'warning')
+        return redirect(url_for('dashboard'))
+    
+    # Load scan results
+    report_path = os.path.join(REPORTS_DIR, f"scan_{scan_id}.json")
+    if not os.path.exists(report_path):
+        flash('Scan results not found', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    with open(report_path, 'r') as f:
+        scan_results = json.load(f)
+    
+    # Generate filename
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    base_filename = f"wassp_report_{timestamp}"
+    
+    try:
+        if format == 'pdf':
+            filename = os.path.join(REPORTS_DIR, f"{base_filename}.pdf")
+            report_exporter.export_pdf(scan_results, filename)
+            return send_file(filename, as_attachment=True, download_name=f"{base_filename}.pdf")
+        
+        elif format == 'json':
+            filename = os.path.join(REPORTS_DIR, f"{base_filename}.json")
+            report_exporter.export_json(scan_results, filename)
+            return send_file(filename, as_attachment=True, download_name=f"{base_filename}.json")
+        
+        elif format == 'csv':
+            filename = os.path.join(REPORTS_DIR, f"{base_filename}.csv")
+            report_exporter.export_csv(scan_results, filename)
+            return send_file(filename, as_attachment=True, download_name=f"{base_filename}.csv")
+        
+        elif format == 'html':
+            filename = os.path.join(REPORTS_DIR, f"{base_filename}.html")
+            report_exporter.export_html(scan_results, filename)
+            return send_file(filename, as_attachment=True, download_name=f"{base_filename}.html")
+        
+        elif format == 'sarif':
+            filename = os.path.join(REPORTS_DIR, f"{base_filename}.sarif")
+            report_exporter.export_sarif(scan_results, filename)
+            return send_file(filename, as_attachment=True, download_name=f"{base_filename}.sarif")
+        
+        else:
+            flash('Invalid export format', 'danger')
+            return redirect(url_for('scan_result'))
+    
+    except Exception as e:
+        flash(f'Error exporting report: {str(e)}', 'danger')
+        return redirect(url_for('scan_result'))
+
 @app.route('/monitor/start', methods=['POST'])
 def start_monitoring():
     interval = int(request.form.get('interval', 10))
@@ -1451,7 +2409,9 @@ def configure():
             'enable_cloudflare': request.form.get('enable_cloudflare') == 'on',
             'enable_ngrok': request.form.get('enable_ngrok') == 'on',
             'enable_ai_features': request.form.get('enable_ai_features') == 'on',
-            'cloudflared_path': request.form.get('cloudflared_path', '')
+            'cloudflared_path': request.form.get('cloudflared_path', ''),
+            'subdomain_wordlist': request.form.get('subdomain_wordlist', ''),
+            'api_wordlist': request.form.get('api_wordlist', '')
         })
         
         
@@ -1612,10 +2572,17 @@ def api_analyze_vulnerabilities():
             'need_api_key': True
         }), 400
     
-    # Get scan results from the request
+    # Get scan results from the request or session
     scan_id = request.form.get('scan_id')
     if not scan_id:
-        scan_id = session.get('scan_id')
+        # Try to get scan_id from the report_path in session
+        report_path = session.get('report_path')
+        if report_path:
+            # Extract scan_id from report_path (e.g., "reports/scan_UUID.json")
+            import os.path
+            filename = os.path.basename(report_path)
+            if filename.startswith('scan_') and filename.endswith('.json'):
+                scan_id = filename[5:-5]  # Remove "scan_" prefix and ".json" suffix
     
     if not scan_id:
         return jsonify({
@@ -1986,6 +2953,19 @@ if __name__ == '__main__':
     for directory in [CONFIG_DIR, REPORTS_DIR, SCREENSHOTS_DIR, STATIC_DIR, IMG_DIR, SCAN_STATUS_DIR]:
         if not os.path.exists(directory):
             os.makedirs(directory)
+    
+    # Create default wordlists if they don't exist
+    os.makedirs('wordlists', exist_ok=True)
+    
+    # Create default subdomain wordlist
+    if not os.path.exists('wordlists/subdomains.txt'):
+        with open('wordlists/subdomains.txt', 'w') as f:
+            f.write('\n'.join(['dev', 'staging', 'api', 'admin', 'test', 'beta']))
+    
+    # Create default API endpoint wordlist
+    if not os.path.exists('wordlists/api_endpoints.txt'):
+        with open('wordlists/api_endpoints.txt', 'w') as f:
+            f.write('\n'.join(['/api/users', '/api/auth', '/api/login', '/api/admin']))
     
     # Run the app
     app.run(debug=True, host='0.0.0.0', port=5000)

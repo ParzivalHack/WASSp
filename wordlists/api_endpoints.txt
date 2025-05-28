@@ -1,0 +1,4 @@
+/api/users
+/api/auth
+/api/login
+/api/admin

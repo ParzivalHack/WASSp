@@ -67,6 +67,43 @@
             
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="mb-0"><i class="fas fa-download"></i> Export Report</h3>
+                </div>
+                <div class="card-body">
+                    <p>Download the scan results in your preferred format:</p>
+                    <div class="btn-group" role="group">
+                        <a href="{{ url_for('export_scan_results', format='pdf') }}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-file-pdf"></i> PDF
+                        </a>
+                        <a href="{{ url_for('export_scan_results', format='html') }}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-file-code"></i> HTML
+                        </a>
+                        <a href="{{ url_for('export_scan_results', format='json') }}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-file-alt"></i> JSON
+                        </a>
+                        <a href="{{ url_for('export_scan_results', format='csv') }}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-file-csv"></i> CSV
+                        </a>
+                        <a href="{{ url_for('export_scan_results', format='sarif') }}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-code"></i> SARIF
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3 class="mb-0"><i class="fas fa-chart-bar"></i> Security Overview</h3>
+                </div>
+                <div class="card-body">
+                    <canvas id="securityChart" height="200"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <h3 class="mb-0"><i class="fas fa-robot"></i> AI Analysis</h3>
                     {% if scan_results.get('ai_analysis') %}
                         <span class="badge bg-success">Available</span>
@@ -111,17 +148,10 @@
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-6">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h3 class="mb-0"><i class="fas fa-chart-bar"></i> Security Overview</h3>
-                </div>
-                <div class="card-body">
-                    <canvas id="securityChart" height="200"></canvas>
-                </div>
-            </div>
-            
+    </div>
+    
+    <div class="row mb-4">
+        <div class="col-12">
             <div class="card">
                 <div class="card-header">
                     <h3 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Vulnerabilities</h3>
@@ -143,6 +173,9 @@
                                             <p class="mb-1">{{ vuln.description }}</p>
                                             {% if vuln.url %}
                                                 <small class="text-muted">URL: {{ vuln.url }}</small>
+                                            {% endif %}
+                                            {% if vuln.cookie %}
+                                                <small class="text-muted">Cookie: {{ vuln.cookie }}</small>
                                             {% endif %}
                                         </li>
                                     {% endfor %}
@@ -185,8 +218,23 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tech-tab" data-bs-toggle="tab" data-bs-target="#tech" type="button" role="tab">
+                <i class="fas fa-microchip"></i> Technology Stack
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="cookies-tab" data-bs-toggle="tab" data-bs-target="#cookies" type="button" role="tab">
+                <i class="fas fa-cookie-bite"></i> Cookies
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="api-tab" data-bs-toggle="tab" data-bs-target="#api" type="button" role="tab">
+                <i class="fas fa-plug"></i> API Security
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button class="nav-link" id="whois-tab" data-bs-toggle="tab" data-bs-target="#whois" type="button" role="tab">
-                <i class="fas fa-id-card"></i> WHOIS Info
+                <i class="fas fa-id-card"></i> WHOIS
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -303,7 +351,6 @@
         </div>
         
         <div class="tab-pane fade" id="headers" role="tabpanel">
-            <!-- HTTP Headers content -->
             <div class="card">
                 <div class="card-body">
                     {% set main_result = scan_results.results[scan_results.url] %}
@@ -340,7 +387,6 @@
         </div>
         
         <div class="tab-pane fade" id="content" role="tabpanel">
-            <!-- Content Info content -->
             <div class="card">
                 <div class="card-body">
                     {% set main_result = scan_results.results[scan_results.url] %}
@@ -387,7 +433,7 @@
                                     </tr>
                                     <tr>
                                         <th>Content Hash</th>
-                                        <td><code>{{ main_result.content_info.content_hash or 'N/A' }}</code></td>
+                                        <td><code>{{ main_result.content_info.content_hash[:20] or 'N/A' }}...</code></td>
                                     </tr>
                                 </table>
                             </div>
@@ -417,7 +463,7 @@
                                                 {% for name, content in main_result.content_info.meta_tags.items() %}
                                                     <tr>
                                                         <td>{{ name }}</td>
-                                                        <td>{{ content }}</td>
+                                                        <td>{{ content[:50] }}{% if content|length > 50 %}...{% endif %}</td>
                                                     </tr>
                                                 {% endfor %}
                                             </tbody>
@@ -440,8 +486,174 @@
             </div>
         </div>
         
+        <div class="tab-pane fade" id="tech" role="tabpanel">
+            <div class="card">
+                <div class="card-body">
+                    {% set main_result = scan_results.results[scan_results.url] %}
+                    {% if main_result and main_result.technology_stack %}
+                        <h4 class="mb-3">Detected Technologies</h4>
+                        <div class="row">
+                            {% for category, technologies in main_result.technology_stack.items() %}
+                                {% if technologies and category != 'versions' %}
+                                    <div class="col-md-6 mb-3">
+                                        <h5>{{ category|replace('_', ' ')|title }}</h5>
+                                        <ul class="list-group">
+                                            {% for tech in technologies %}
+                                                <li class="list-group-item">
+                                                    <i class="fas fa-check text-success"></i> {{ tech }}
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        
+                        {% if main_result.technology_stack.get('versions') %}
+                            <h5 class="mt-4">Version Information</h5>
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Component</th>
+                                        <th>Version</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for component, version in main_result.technology_stack.versions.items() %}
+                                        <tr>
+                                            <td>{{ component }}</td>
+                                            <td>{{ version }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        {% endif %}
+                    {% else %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> No technology stack information detected.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="tab-pane fade" id="cookies" role="tabpanel">
+            <div class="card">
+                <div class="card-body">
+                    {% set main_result = scan_results.results[scan_results.url] %}
+                    {% if main_result and main_result.cookie_security and main_result.cookie_security.cookies %}
+                        <h4 class="mb-3">Cookie Security Analysis</h4>
+                        
+                        <div class="alert {% if main_result.cookie_security.security_score >= 80 %}alert-success{% elif main_result.cookie_security.security_score >= 50 %}alert-warning{% else %}alert-danger{% endif %} mb-4">
+                            <h5>Security Score: {{ main_result.cookie_security.security_score }}%</h5>
+                        </div>
+                        
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Cookie Name</th>
+                                        <th>Domain</th>
+                                        <th>Secure</th>
+                                        <th>HttpOnly</th>
+                                        <th>SameSite</th>
+                                        <th>Issues</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for cookie in main_result.cookie_security.cookies %}
+                                        <tr>
+                                            <td><strong>{{ cookie.name }}</strong></td>
+                                            <td>{{ cookie.domain or 'N/A' }}</td>
+                                            <td>
+                                                {% if cookie.secure %}
+                                                    <i class="fas fa-check text-success"></i>
+                                                {% else %}
+                                                    <i class="fas fa-times text-danger"></i>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if cookie.httponly %}
+                                                    <i class="fas fa-check text-success"></i>
+                                                {% else %}
+                                                    <i class="fas fa-times text-danger"></i>
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ cookie.samesite or 'Not set' }}</td>
+                                            <td>
+                                                {% if cookie.vulnerabilities %}
+                                                    <span class="badge bg-danger">{{ cookie.vulnerabilities|length }}</span>
+                                                {% else %}
+                                                    <span class="badge bg-success">0</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> No cookies found on this website.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="tab-pane fade" id="api" role="tabpanel">
+            <div class="card">
+                <div class="card-body">
+                    {% set has_api_data = false %}
+                    {% for url, result in scan_results.results.items() %}
+                        {% if result.api_endpoints and result.api_endpoints.endpoints_found %}
+                            {% set has_api_data = true %}
+                            <h4 class="mb-3">API Security Analysis</h4>
+                            
+                            <h5>Discovered Endpoints</h5>
+                            <ul class="list-group mb-3">
+                                {% for endpoint in result.api_endpoints.endpoints_found %}
+                                    <li class="list-group-item">
+                                        <i class="fas fa-link"></i> {{ endpoint }}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            
+                            {% if result.api_endpoints.documentation.found %}
+                                <div class="alert alert-warning">
+                                    <h5 class="alert-heading">API Documentation Exposed</h5>
+                                    <p><strong>Type:</strong> {{ result.api_endpoints.documentation.type }}</p>
+                                    <p><strong>URLs:</strong></p>
+                                    <ul class="mb-0">
+                                        {% for doc_url in result.api_endpoints.documentation.urls %}
+                                            <li><a href="{{ doc_url }}" target="_blank">{{ doc_url }}</a></li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            {% endif %}
+                            
+                            {% if result.api_endpoints.vulnerabilities %}
+                                <h5>API Vulnerabilities</h5>
+                                {% for vuln in result.api_endpoints.vulnerabilities %}
+                                    <div class="alert alert-{{ 'danger' if vuln.severity == 'High' or vuln.severity == 'Critical' else 'warning' if vuln.severity == 'Medium' else 'info' }} mb-2">
+                                        <strong>{{ vuln.type }}</strong><br>
+                                        <small>{{ vuln.description }}</small>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if not has_api_data %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> No API endpoints detected on this website.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
         <div class="tab-pane fade" id="whois" role="tabpanel">
-            <!-- WHOIS Info content -->
             <div class="card">
                 <div class="card-body">
                     {% set main_result = scan_results.results[scan_results.url] %}
@@ -490,7 +702,6 @@
         </div>
         
         <div class="tab-pane fade" id="ip" role="tabpanel">
-            <!-- IP Quality Score content -->
             <div class="card">
                 <div class="card-body">
                     {% set main_result = scan_results.results[scan_results.url] %}
@@ -553,27 +764,6 @@
                                 </table>
                             </div>
                         </div>
-                        
-                        {% if main_result.ip_quality_check.get('malware_domains') or main_result.ip_quality_check.get('recent_abuse') %}
-                            <h5 class="mt-4">Additional Risk Factors</h5>
-                            <ul class="list-group">
-                                {% if main_result.ip_quality_check.get('malware_domains') %}
-                                    <li class="list-group-item list-group-item-danger">Malware domains detected</li>
-                                {% endif %}
-                                {% if main_result.ip_quality_check.get('recent_abuse') %}
-                                    <li class="list-group-item list-group-item-danger">Recent abuse detected</li>
-                                {% endif %}
-                                {% if main_result.ip_quality_check.get('bot_status') %}
-                                    <li class="list-group-item list-group-item-danger">Bot traffic detected</li>
-                                {% endif %}
-                                {% if main_result.ip_quality_check.get('proxy') %}
-                                    <li class="list-group-item list-group-item-warning">Proxy/VPN detected</li>
-                                {% endif %}
-                                {% if main_result.ip_quality_check.get('tor') %}
-                                    <li class="list-group-item list-group-item-warning">TOR exit node detected</li>
-                                {% endif %}
-                            </ul>
-                        {% endif %}
                     {% else %}
                         <div class="alert alert-warning">
                             <i class="fas fa-exclamation-triangle"></i> IP Quality Score information not available.
@@ -800,9 +990,7 @@
             $.ajax({
                 url: '{{ url_for("api_analyze_vulnerabilities") }}',
                 method: 'POST',
-                data: {
-                    scan_id: '{{ session.get("scan_id", "") }}'
-                },
+                data: {},
                 success: function(response) {
                     // Hide loading indicator
                     document.getElementById('aiAnalysisLoading').classList.add('d-none');
