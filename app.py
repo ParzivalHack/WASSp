@@ -1877,9 +1877,9 @@ def check_scan_completion():
             with open(scan_completion_file, 'r') as f:
                 scan_data = json.load(f)
             
-            # Update session with scan results
+            # Update session with scan completion status and report path
+            # DO NOT store the actual results in session (too large)
             session['scan_completed'] = True
-            session['scan_results'] = scan_data.get('results')
             session['report_path'] = scan_data.get('report_path')
             session['active_scan'] = False
             session.modified = True
@@ -2135,7 +2135,14 @@ def dashboard():
     active_scan = session.get('active_scan', False)
     
     # Get the latest scan results if available
-    scan_results = session.get('scan_results', {})
+    scan_results = {}
+    report_path = session.get('report_path')
+    if report_path and os.path.exists(report_path):
+        try:
+            with open(report_path, 'r') as f:
+                scan_results = json.load(f)
+        except:
+            scan_results = {}
     
     # Get defacement monitor status
     monitor_job_status = scheduler.get_job('DefacementMonitorJob') is not None
@@ -2252,11 +2259,14 @@ def scan_status():
 
 @app.route('/scan/result')
 def scan_result():
-    scan_results = session.get('scan_results', {})
-    
-    if not scan_results:
+    # Load scan results from file
+    report_path = session.get('report_path')
+    if not report_path or not os.path.exists(report_path):
         flash('No scan results available', 'warning')
         return redirect(url_for('index'))
+    
+    with open(report_path, 'r') as f:
+        scan_results = json.load(f)
     
     return render_template('scan_result.html', scan_results=scan_results, config=config)
 
@@ -2542,11 +2552,21 @@ def api_scan_progress():
     active_scan = session.get('active_scan', False)
     completed = session.get('scan_completed', False)
     
+    # Get target URLs count from report if available
+    target_urls_count = 0
+    if completed and session.get('report_path'):
+        try:
+            with open(session.get('report_path'), 'r') as f:
+                scan_data = json.load(f)
+                target_urls_count = len(scan_data.get('target_urls', []))
+        except:
+            pass
+    
     return jsonify({
         'active': active_scan and not completed,
         'completed': completed,
         'error': session.get('scan_error'),
-        'scanned_urls': len(session.get('scan_results', {}).get('target_urls', [])) if session.get('scan_results') else 0,
+        'scanned_urls': target_urls_count,
         'progress': 100 if completed else (10 if active_scan else 0),
         'stage': 'Scanning in progress...' if active_scan else 'No scan active'
     })
@@ -2632,8 +2652,7 @@ def api_analyze_vulnerabilities():
         with open(report_path, 'w') as f:
             json.dump(scan_results, f, indent=4)
         
-        # Update session
-        session['scan_results'] = scan_results
+        # Don't store large scan results in session
         session.modified = True  # Ensure session changes are saved
         
         return jsonify({
@@ -2960,12 +2979,178 @@ if __name__ == '__main__':
     # Create default subdomain wordlist
     if not os.path.exists('wordlists/subdomains.txt'):
         with open('wordlists/subdomains.txt', 'w') as f:
-            f.write('\n'.join(['dev', 'staging', 'api', 'admin', 'test', 'beta']))
-    
-    # Create default API endpoint wordlist
+            subdomains = [
+                # Development/Testing
+                'dev', 'development', 'stage', 'staging', 'test', 'testing', 'uat', 'demo', 'alpha', 'beta', 'preview',
+                'sandbox', 'debug', 'qa', 'qa1', 'qa2', 'test1', 'test2', 'test3', 'dev1', 'dev2', 'dev3',
+                
+                # Common Services
+                'www', 'www2', 'www3', 'web', 'web1', 'web2', 'app', 'apps', 'application', 'portal', 'user', 'users',
+                'admin', 'administrator', 'panel', 'control', 'controlpanel', 'manager', 'management', 'root',
+                
+                # API Related
+                'api', 'api1', 'api2', 'api3', 'api-v1', 'api-v2', 'api-v3', 'rest', 'restapi', 'ws', 'webservice',
+                'service', 'services', 'graphql', 'graph', 'rpc', 'jsonrpc', 'xmlrpc', 'soap', 'wsdl',
+                
+                # Mail Services
+                'mail', 'email', 'smtp', 'pop', 'pop3', 'imap', 'webmail', 'exchange', 'owa', 'outlook', 'mx', 'mx1', 'mx2',
+                'relay', 'mailserver', 'newsletter', 'lists', 'subscribe', 'unsubscribe', 'postmaster', 'hostmaster',
+                
+                # Database/Storage
+                'db', 'database', 'mysql', 'postgres', 'postgresql', 'mongo', 'mongodb', 'redis', 'elastic', 'elasticsearch',
+                'sql', 'phpmyadmin', 'pma', 'dbadmin', 'adminer', 'pgadmin', 'data', 'datastore', 'storage',
+                
+                # CDN/Static Content
+                'cdn', 'cdn1', 'cdn2', 'static', 'static1', 'static2', 'assets', 'images', 'img', 'imgs', 'image',
+                'media', 'upload', 'uploads', 'download', 'downloads', 'files', 'content', 'resources',
+                
+                # Security/Auth
+                'secure', 'ssl', 'auth', 'authentication', 'oauth', 'oauth2', 'sso', 'login', 'signin', 'signup',
+                'register', 'account', 'accounts', 'identity', 'id', 'passport', 'connect', 'gateway',
+                
+                # Infrastructure
+                'vpn', 'remote', 'rdp', 'ssh', 'ftp', 'sftp', 'ftps', 'tftp', 'backup', 'backups', 'bak',
+                'monitor', 'monitoring', 'nagios', 'zabbix', 'grafana', 'kibana', 'prometheus', 'logs', 'logging',
+                'logstash', 'metrics', 'stats', 'statistics', 'analytics', 'elk', 'apm',
+                
+                # Communication
+                'chat', 'talk', 'im', 'messaging', 'slack', 'teams', 'discord', 'irc', 'jabber', 'xmpp',
+                'conference', 'meet', 'meeting', 'zoom', 'webrtc', 'sip', 'voip', 'pbx', 'phone', 'call',
+                
+                # Documentation/Support
+                'docs', 'documentation', 'doc', 'help', 'support', 'kb', 'knowledge', 'knowledgebase', 'faq',
+                'wiki', 'confluence', 'jira', 'ticket', 'tickets', 'helpdesk', 'servicedesk', 'desk',
+                
+                # Development Tools
+                'git', 'gitlab', 'github', 'bitbucket', 'svn', 'repo', 'repository', 'code', 'source',
+                'ci', 'cd', 'jenkins', 'travis', 'circleci', 'pipeline', 'build', 'deploy', 'deployment',
+                'docker', 'registry', 'hub', 'k8s', 'kubernetes', 'swarm', 'rancher', 'openshift',
+                
+                # Business/Commercial
+                'shop', 'store', 'ecommerce', 'cart', 'checkout', 'payment', 'pay', 'invoice', 'billing',
+                'order', 'orders', 'customer', 'customers', 'crm', 'erp', 'sales', 'marketing', 'campaign',
+                'newsletter', 'blog', 'news', 'press', 'about', 'contact', 'partners', 'clients',
+                
+                # Geographic/Language
+                'us', 'uk', 'eu', 'asia', 'africa', 'australia', 'canada', 'india', 'china', 'japan',
+                'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'cn', 'jp', 'kr', 'ar', 'nl',
+                
+                # Mobile
+                'm', 'mobile', 'mob', 'ios', 'android', 'app', 'apps', 'smartphone', 'tablet', 'responsive',
+                
+                # Miscellaneous
+                'old', 'new', 'legacy', 'v1', 'v2', 'v3', 'temp', 'temporary', 'bak', 'backup', 'archive',
+                'mirror', 'failover', 'disaster', 'recovery', 'dr', 'ha', 'lb', 'loadbalancer', 'proxy',
+                'forward', 'reverse', 'gateway', 'firewall', 'waf', 'shield', 'protect', 'security',
+                'private', 'public', 'internal', 'external', 'extranet', 'intranet', 'partner', 'b2b',
+                'local', 'localhost', 'home', 'office', 'corporate', 'enterprise', 'global', 'world',
+                'info', 'information', 'service', 'system', 'systems', 'network', 'net', 'infra'
+            ]
+            f.write('\n'.join(subdomains))
+        
+        # Create default API endpoint wordlist
     if not os.path.exists('wordlists/api_endpoints.txt'):
         with open('wordlists/api_endpoints.txt', 'w') as f:
-            f.write('\n'.join(['/api/users', '/api/auth', '/api/login', '/api/admin']))
+            api_endpoints = [
+                # Basic API paths
+                '/api', '/api/v1', '/api/v2', '/api/v3', '/api/v4', '/api/v5',
+                '/v1', '/v2', '/v3', '/rest', '/rest/v1', '/rest/v2',
+                '/graphql', '/graphql/v1', '/query', '/api/graphql',
+                
+                # User Management
+                '/api/users', '/api/user', '/api/profile', '/api/profiles', '/api/account', '/api/accounts',
+                '/api/users/list', '/api/users/search', '/api/users/create', '/api/users/update', '/api/users/delete',
+                '/api/users/{id}', '/api/user/{id}', '/api/profile/{id}', '/api/me', '/api/self',
+                '/api/register', '/api/signup', '/api/registration', '/api/create-account',
+                
+                # Authentication & Authorization
+                '/api/auth', '/api/authenticate', '/api/login', '/api/signin', '/api/logout', '/api/signout',
+                '/api/auth/login', '/api/auth/logout', '/api/auth/refresh', '/api/auth/token', '/api/auth/verify',
+                '/api/token', '/api/tokens', '/api/refresh', '/api/refresh-token', '/api/access-token',
+                '/api/oauth', '/api/oauth2', '/api/oauth/token', '/api/oauth/authorize', '/api/oauth/callback',
+                '/api/sso', '/api/saml', '/api/oidc', '/api/jwt', '/api/session', '/api/sessions',
+                '/api/password', '/api/password/reset', '/api/password/forgot', '/api/password/change',
+                '/api/2fa', '/api/mfa', '/api/otp', '/api/verify', '/api/confirm',
+                
+                # Admin & Management
+                '/api/admin', '/api/admin/users', '/api/admin/config', '/api/admin/settings', '/api/admin/system',
+                '/api/admin/logs', '/api/admin/audit', '/api/admin/backup', '/api/admin/restore',
+                '/api/management', '/api/manager', '/api/control', '/api/panel', '/api/dashboard',
+                '/api/config', '/api/configuration', '/api/settings', '/api/preferences', '/api/options',
+                
+                # Data & CRUD Operations
+                '/api/data', '/api/list', '/api/search', '/api/filter', '/api/query', '/api/find',
+                '/api/create', '/api/read', '/api/update', '/api/delete', '/api/save', '/api/store',
+                '/api/get', '/api/post', '/api/put', '/api/patch', '/api/remove',
+                '/api/items', '/api/item', '/api/resources', '/api/resource', '/api/entities', '/api/entity',
+                '/api/records', '/api/record', '/api/entries', '/api/entry',
+                
+                # File & Media
+                '/api/upload', '/api/uploads', '/api/download', '/api/downloads', '/api/file', '/api/files',
+                '/api/media', '/api/images', '/api/image', '/api/documents', '/api/document',
+                '/api/attachment', '/api/attachments', '/api/assets', '/api/asset',
+                '/api/export', '/api/import', '/api/backup', '/api/restore',
+                
+                # Communication & Messaging
+                '/api/message', '/api/messages', '/api/email', '/api/emails', '/api/mail', '/api/send',
+                '/api/notification', '/api/notifications', '/api/alert', '/api/alerts', '/api/push',
+                '/api/sms', '/api/chat', '/api/conversation', '/api/conversations', '/api/thread', '/api/threads',
+                '/api/comment', '/api/comments', '/api/reply', '/api/feedback', '/api/contact',
+                
+                # E-commerce & Payments
+                '/api/products', '/api/product', '/api/catalog', '/api/inventory', '/api/stock',
+                '/api/cart', '/api/carts', '/api/basket', '/api/checkout', '/api/order', '/api/orders',
+                '/api/payment', '/api/payments', '/api/transaction', '/api/transactions', '/api/invoice', '/api/invoices',
+                '/api/billing', '/api/subscription', '/api/subscriptions', '/api/pricing', '/api/plans',
+                '/api/customer', '/api/customers', '/api/client', '/api/clients',
+                
+                # Analytics & Monitoring
+                '/api/analytics', '/api/stats', '/api/statistics', '/api/metrics', '/api/reports', '/api/report',
+                '/api/logs', '/api/log', '/api/events', '/api/event', '/api/tracking', '/api/track',
+                '/api/monitor', '/api/monitoring', '/api/health', '/api/healthcheck', '/api/status', '/api/ping',
+                '/api/audit', '/api/history', '/api/activity', '/api/usage', '/api/performance',
+                
+                # Integration & Webhooks
+                '/api/webhook', '/api/webhooks', '/api/hook', '/api/hooks', '/api/callback', '/api/callbacks',
+                '/api/integration', '/api/integrations', '/api/connect', '/api/sync', '/api/synchronize',
+                '/api/third-party', '/api/external', '/api/partner', '/api/partners',
+                
+                # Search & Discovery
+                '/api/search', '/api/find', '/api/lookup', '/api/discover', '/api/explore',
+                '/api/autocomplete', '/api/suggest', '/api/suggestions', '/api/typeahead',
+                '/api/filter', '/api/filters', '/api/sort', '/api/category', '/api/categories',
+                '/api/tag', '/api/tags', '/api/label', '/api/labels',
+                
+                # API Documentation
+                '/api/docs', '/api/documentation', '/api/swagger', '/api/swagger.json', '/api/swagger.yaml',
+                '/api/openapi', '/api/openapi.json', '/api/openapi.yaml', '/api/spec', '/api/specification',
+                '/api/schema', '/api/schemas', '/api/reference', '/api/help', '/api/info',
+                '/api/.well-known', '/.well-known/openapi.json', '/api-docs', '/swagger-ui', '/redoc',
+                
+                # Versioning Variations
+                '/api/latest', '/api/current', '/api/stable', '/api/beta', '/api/alpha', '/api/dev',
+                '/api/v1.0', '/api/v1.1', '/api/v2.0', '/api/v2.1', '/api/v3.0',
+                '/api/2021', '/api/2022', '/api/2023', '/api/2024', '/api/2025',
+                
+                # Common Vulnerabilities
+                '/api/debug', '/api/test', '/api/testing', '/api/demo', '/api/temp', '/api/tmp',
+                '/api/backup', '/api/backups', '/api/old', '/api/new', '/api/legacy',
+                '/api/_debug', '/api/_internal', '/api/_private', '/api/_admin',
+                '/api/.git', '/api/.svn', '/api/.env', '/api/config.json', '/api/settings.json',
+                
+                # GraphQL Specific
+                '/graphql', '/graphql/console', '/graphql/graphiql', '/graphiql', '/playground',
+                '/graphql/schema', '/graphql/introspection', '/altair', '/voyager',
+                
+                # WebSocket & Real-time
+                '/ws', '/websocket', '/socket', '/socket.io', '/hub', '/stream', '/sse',
+                '/api/ws', '/api/websocket', '/api/stream', '/api/live', '/api/realtime',
+                
+                # Mobile API Endpoints
+                '/api/mobile', '/api/ios', '/api/android', '/api/app', '/api/device', '/api/devices',
+                '/api/push', '/api/push/register', '/api/push/notify', '/api/gcm', '/api/fcm', '/api/apns'
+            ]
+            f.write('\n'.join(api_endpoints))
     
     # Run the app
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -1,6 +1,0 @@
-dev
-staging
-api
-admin
-test
-beta
