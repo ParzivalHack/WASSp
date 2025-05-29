@@ -1,6 +1,6 @@
 {
-    "pushover_user_key": "uq5r2yyfgddmd352yw2xippcwy8ee5",
-    "pushover_api_token": "addv55xz8yrqaj8uqsnf16zhcdn12v",
+    "pushover_user_key": "",
+    "pushover_api_token": "",
     "monitored_urls": [
         "https://voyxa.com"
     ],
